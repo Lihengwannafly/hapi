@@ -61,6 +61,42 @@ function resolveRelayFlag(args: string[]): { enabled: boolean; source: RelayFlag
     return { enabled, source }
 }
 
+function normalizeOrigin(value: string): string {
+    const trimmed = value.trim()
+    if (!trimmed) {
+        return ''
+    }
+    try {
+        return new URL(trimmed).origin
+    } catch {
+        return trimmed
+    }
+}
+
+function normalizeOrigins(origins: string[]): string[] {
+    const normalized = origins
+        .map(normalizeOrigin)
+        .filter(Boolean)
+    if (normalized.includes('*')) {
+        return ['*']
+    }
+    return Array.from(new Set(normalized))
+}
+
+function mergeCorsOrigins(base: string[], extra: string[]): string[] {
+    if (base.includes('*') || extra.includes('*')) {
+        return ['*']
+    }
+    const merged = new Set<string>()
+    for (const origin of base) {
+        merged.add(origin)
+    }
+    for (const origin of extra) {
+        merged.add(origin)
+    }
+    return Array.from(merged)
+}
+
 let syncEngine: SyncEngine | null = null
 let happyBot: HappyBot | null = null
 let webServer: BunServer<WebSocketData> | null = null
@@ -73,9 +109,15 @@ async function main() {
     console.log('HAPI Server starting...')
 
     // Load configuration (async - loads from env/file with persistence)
-    const config = await createConfiguration()
     const relayApiDomain = process.env.HAPI_RELAY_API || 'relay.hapi.run'
     const relayFlag = resolveRelayFlag(process.argv)
+    const officialWebUrl = process.env.HAPI_OFFICIAL_WEB_URL || 'https://app.hapi.run'
+    const config = await createConfiguration()
+    const baseCorsOrigins = normalizeOrigins(config.corsOrigins)
+    const relayCorsOrigin = normalizeOrigin(officialWebUrl)
+    const corsOrigins = relayFlag.enabled
+        ? mergeCorsOrigins(baseCorsOrigins, relayCorsOrigin ? [relayCorsOrigin] : [])
+        : baseCorsOrigins
 
     // Display CLI API token information
     if (config.cliApiTokenIsNew) {
@@ -127,6 +169,7 @@ async function main() {
     const socketServer = createSocketServer({
         store,
         jwtSecret,
+        corsOrigins,
         getSession: (sessionId) => syncEngine?.getSession(sessionId) ?? store.sessions.getSession(sessionId),
         onWebappEvent: (event: SyncEvent) => syncEngine?.handleRealtimeEvent(event),
         onSessionAlive: (payload) => syncEngine?.handleSessionAlive(payload),
@@ -164,7 +207,8 @@ async function main() {
         jwtSecret,
         store,
         vapidPublicKey: vapidKeys.publicKey,
-        socketEngine: socketServer.engine
+        socketEngine: socketServer.engine,
+        corsOrigins
     })
 
     // Start the bot if configured
@@ -207,7 +251,6 @@ async function main() {
             console.log('[Web] Public: ' + tunnelUrl)
 
             // Generate direct access link with server and token
-            const officialWebUrl = process.env.HAPI_OFFICIAL_WEB_URL || 'https://app.hapi.run'
             const params = new URLSearchParams({
                 server: tunnelUrl,
                 token: config.cliApiToken

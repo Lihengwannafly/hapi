@@ -59,6 +59,7 @@ function createWebApp(options: {
     jwtSecret: Uint8Array
     store: Store
     vapidPublicKey: string
+    corsOrigins?: string[]
     embeddedAssetMap: Map<string, EmbeddedWebAsset> | null
 }): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
@@ -68,7 +69,7 @@ function createWebApp(options: {
     // Health check endpoint (no auth required)
     app.get('/health', (c) => c.json({ status: 'ok' }))
 
-    const corsOrigins = configuration.corsOrigins
+    const corsOrigins = options.corsOrigins ?? configuration.corsOrigins
     const corsOriginOption = corsOrigins.includes('*') ? '*' : corsOrigins
     const corsMiddleware = cors({
         origin: corsOriginOption,
@@ -178,6 +179,7 @@ export async function startWebServer(options: {
     store: Store
     vapidPublicKey: string
     socketEngine: SocketEngine
+    corsOrigins?: string[]
 }): Promise<BunServer<WebSocketData>> {
     const isCompiled = isBunCompiled()
     const embeddedAssetMap = isCompiled ? await loadEmbeddedAssetMap() : null
@@ -188,6 +190,7 @@ export async function startWebServer(options: {
         jwtSecret: options.jwtSecret,
         store: options.store,
         vapidPublicKey: options.vapidPublicKey,
+        corsOrigins: options.corsOrigins,
         embeddedAssetMap
     })
 

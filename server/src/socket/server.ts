@@ -33,6 +33,7 @@ function resolveEnvNumber(name: string, fallback: number): number {
 export type SocketServerDeps = {
     store: Store
     jwtSecret: Uint8Array
+    corsOrigins?: string[]
     getSession?: (sessionId: string) => { active: boolean; namespace: string } | null
     onWebappEvent?: (event: SyncEvent) => void
     onSessionAlive?: (payload: { sid: string; time: number; thinking?: boolean; mode?: 'local' | 'remote' }) => void
@@ -45,7 +46,7 @@ export function createSocketServer(deps: SocketServerDeps): {
     engine: Engine
     rpcRegistry: RpcRegistry
 } {
-    const corsOrigins = configuration.corsOrigins
+    const corsOrigins = deps.corsOrigins ?? configuration.corsOrigins
     const allowAllOrigins = corsOrigins.includes('*')
 
     const io = new Server<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>({

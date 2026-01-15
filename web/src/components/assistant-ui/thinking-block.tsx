@@ -1,8 +1,6 @@
-import { useState, useEffect, useRef, type FC, type PropsWithChildren } from 'react'
-import { useMessage } from '@assistant-ui/react'
-import { MarkdownTextPrimitive } from '@assistant-ui/react-markdown'
+import { useState, useEffect, useRef, type FC } from 'react'
+import { useAssistantState } from '@assistant-ui/react'
 import { cn } from '@/lib/utils'
-import { defaultComponents, MARKDOWN_PLUGINS } from '@/components/assistant-ui/markdown-text'
 
 function ChevronIcon(props: { className?: string; open?: boolean }) {
     return (
@@ -33,40 +31,31 @@ function ShimmerDot() {
     )
 }
 
-/**
- * Renders individual reasoning message part content with markdown support.
- */
-export const Reasoning: FC = () => {
-    return (
-        <MarkdownTextPrimitive
-            remarkPlugins={MARKDOWN_PLUGINS}
-            components={defaultComponents}
-            className={cn('aui-reasoning-content min-w-0 max-w-full break-words text-sm text-[var(--app-hint)]')}
-        />
-    )
+type ReasoningPart = {
+    type: 'reasoning'
+    text: string
+    status?: { type: string }
 }
 
-type ReasoningGroupProps = PropsWithChildren<{
-    startIndex: number
-    endIndex: number
-}>
-
 /**
- * Wraps consecutive reasoning parts in a collapsible container.
- * Shows shimmer effect while reasoning is streaming.
+ * Renders all reasoning content from the message in a single collapsible block.
+ * Auto-expands while streaming, auto-collapses when done.
  */
-export const ReasoningGroup: FC<ReasoningGroupProps> = ({ children, endIndex }) => {
+export const ThinkingBlock: FC = () => {
     const [isOpen, setIsOpen] = useState(false)
     const didUserToggleRef = useRef(false)
 
-    // Check if reasoning is still streaming by looking at the last reasoning part's status
-    const message = useMessage()
-    const lastReasoningPart = message.content[endIndex]
-    const isStreaming = message.status?.type === 'running'
-        && lastReasoningPart?.type === 'reasoning'
-        && (lastReasoningPart as { status?: { type: string } }).status?.type === 'running'
+    // Get all reasoning parts from the message
+    const reasoningParts = useAssistantState(({ message }) => {
+        return message.content.filter((part): part is ReasoningPart => part.type === 'reasoning')
+    })
 
-    const prevIsStreamingRef = useRef(isStreaming)
+    // Check if any reasoning is still streaming
+    const messageStatus = useAssistantState(({ message }) => message.status)
+    const isStreaming = messageStatus?.type === 'running'
+        && reasoningParts.some(part => part.status?.type === 'running')
+
+    const prevIsStreamingRef = useRef(false)
 
     // Auto-expand while streaming; auto-collapse once finalized
     useEffect(() => {
@@ -86,8 +75,16 @@ export const ReasoningGroup: FC<ReasoningGroupProps> = ({ children, endIndex }) 
         }
     }, [isStreaming])
 
+    // Don't render if no reasoning parts
+    if (reasoningParts.length === 0) {
+        return null
+    }
+
+    // Combine all reasoning text
+    const combinedText = reasoningParts.map(part => part.text).join('\n\n')
+
     return (
-        <div className="aui-reasoning-group my-2">
+        <div className="aui-thinking-block my-2">
             <button
                 type="button"
                 onClick={() => {
@@ -101,7 +98,7 @@ export const ReasoningGroup: FC<ReasoningGroupProps> = ({ children, endIndex }) 
                 )}
             >
                 <ChevronIcon open={isOpen} />
-                <span>Reasoning</span>
+                <span>Thinking</span>
                 {isStreaming && (
                     <span className="flex items-center gap-1 ml-1 text-[var(--app-hint)]">
                         <ShimmerDot />
@@ -112,11 +109,13 @@ export const ReasoningGroup: FC<ReasoningGroupProps> = ({ children, endIndex }) 
             <div
                 className={cn(
                     'overflow-hidden transition-all duration-200 ease-in-out',
-                    isOpen ? 'max-h-[5000px] opacity-100' : 'max-h-0 opacity-0'
+                    isOpen ? 'max-h-[10000px] opacity-100' : 'max-h-0 opacity-0'
                 )}
             >
                 <div className="pl-4 pt-2 border-l-2 border-[var(--app-border)] ml-0.5">
-                    {children}
+                    <div className="aui-thinking-content min-w-0 max-w-full break-words text-sm text-[var(--app-hint)] whitespace-pre-wrap">
+                        {combinedText}
+                    </div>
                 </div>
             </div>
         </div>

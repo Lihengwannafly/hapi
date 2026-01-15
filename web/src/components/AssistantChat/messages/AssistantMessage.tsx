@@ -1,6 +1,6 @@
 import { MessagePrimitive, useAssistantState } from '@assistant-ui/react'
 import { MarkdownText } from '@/components/assistant-ui/markdown-text'
-import { Reasoning, ReasoningGroup } from '@/components/assistant-ui/reasoning'
+import { ThinkingBlock } from '@/components/assistant-ui/thinking-block'
 import { HappyToolMessage } from '@/components/AssistantChat/messages/ToolMessage'
 import { CliOutputBlock } from '@/components/CliOutputBlock'
 import type { HappyChatMessageMetadata } from '@/lib/assistant-runtime'
@@ -9,10 +9,13 @@ const TOOL_COMPONENTS = {
     Fallback: HappyToolMessage
 } as const
 
+// Hide individual reasoning parts since ThinkingBlock handles them
+const HiddenReasoning = () => null
+
 const MESSAGE_PART_COMPONENTS = {
     Text: MarkdownText,
-    Reasoning: Reasoning,
-    ReasoningGroup: ReasoningGroup,
+    Reasoning: HiddenReasoning,
+    ReasoningGroup: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
     tools: TOOL_COMPONENTS
 } as const
 
@@ -45,6 +48,7 @@ export function HappyAssistantMessage() {
 
     return (
         <MessagePrimitive.Root className={rootClass}>
+            <ThinkingBlock />
             <MessagePrimitive.Content components={MESSAGE_PART_COMPONENTS} />
         </MessagePrimitive.Root>
     )

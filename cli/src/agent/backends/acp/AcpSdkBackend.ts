@@ -19,6 +19,7 @@ export class AcpSdkBackend implements AgentBackend {
     private activeSessionId: string | null = null;
     private isProcessingMessage = false;
     private responseCompleteResolvers: Array<() => void> = [];
+    private lastSessionUpdateAt = 0;
 
     /** Retry configuration for ACP initialization */
     private static readonly INIT_RETRY_OPTIONS = {
@@ -26,6 +27,8 @@ export class AcpSdkBackend implements AgentBackend {
         minDelay: 1000,
         maxDelay: 5000
     };
+    private static readonly UPDATE_QUIET_PERIOD_MS = 120;
+    private static readonly UPDATE_DRAIN_TIMEOUT_MS = 2000;
 
     constructor(private readonly options: { command: string; args?: string[]; env?: Record<string, string> }) {}
 
@@ -143,6 +146,7 @@ export class AcpSdkBackend implements AgentBackend {
         this.activeSessionId = sessionId;
         this.messageHandler = new AcpMessageHandler(onUpdate);
         this.isProcessingMessage = true;
+        this.lastSessionUpdateAt = Date.now();
 
         try {
             // No timeout for prompt requests - they can run for extended periods
@@ -158,6 +162,7 @@ export class AcpSdkBackend implements AgentBackend {
                 onUpdate({ type: 'turn_complete', stopReason });
             }
         } finally {
+            await this.waitForSessionUpdateDrain();
             this.messageHandler?.flushText();
             this.messageHandler = null;
             this.isProcessingMessage = false;
@@ -244,7 +249,29 @@ export class AcpSdkBackend implements AgentBackend {
         }
         const update = params.update;
         if (!this.messageHandler) return;
+        this.lastSessionUpdateAt = Date.now();
         this.messageHandler.handleUpdate(update);
+    }
+
+    private async waitForSessionUpdateDrain(): Promise<void> {
+        if (!this.messageHandler) {
+            return;
+        }
+
+        const quietMs = AcpSdkBackend.UPDATE_QUIET_PERIOD_MS;
+        const deadline = Date.now() + AcpSdkBackend.UPDATE_DRAIN_TIMEOUT_MS;
+
+        while (Date.now() < deadline) {
+            const elapsedSinceUpdate = Date.now() - this.lastSessionUpdateAt;
+            if (elapsedSinceUpdate >= quietMs) {
+                return;
+            }
+
+            const remainingToQuiet = quietMs - elapsedSinceUpdate;
+            const remainingBudget = deadline - Date.now();
+            const waitMs = Math.max(1, Math.min(remainingToQuiet, remainingBudget));
+            await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+        }
     }
 
     private async handlePermissionRequest(params: unknown, requestId: string | number | null): Promise<unknown> {

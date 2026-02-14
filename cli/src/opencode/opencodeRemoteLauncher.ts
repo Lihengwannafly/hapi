@@ -100,6 +100,26 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
         const sendReady = () => {
             session.sendSessionEvent({ type: 'ready' });
         };
+        let turnInFlight = false;
+        let readyAfterTurnTimer: ReturnType<typeof setTimeout> | null = null;
+        const clearReadyAfterTurnTimer = () => {
+            if (!readyAfterTurnTimer) {
+                return;
+            }
+            clearTimeout(readyAfterTurnTimer);
+            readyAfterTurnTimer = null;
+        };
+        const scheduleReadyAfterTurn = () => {
+            clearReadyAfterTurnTimer();
+            readyAfterTurnTimer = setTimeout(() => {
+                readyAfterTurnTimer = null;
+                if (this.shouldExit || turnInFlight || session.thinking || session.queue.size() > 0) {
+                    return;
+                }
+                sendReady();
+            }, 120);
+            readyAfterTurnTimer.unref?.();
+        };
 
         while (!this.shouldExit) {
             const waitSignal = this.abortController.signal;
@@ -111,6 +131,7 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
                 break;
             }
 
+            clearReadyAfterTurnTimer();
             this.applyDisplayMode(batch.mode.permissionMode);
             messageBuffer.addMessage(batch.message, 'user');
 
@@ -127,26 +148,40 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
             }];
 
             session.onThinkingChange(true);
+            turnInFlight = true;
 
             try {
                 await backend.prompt(acpSessionId, promptContent, (message: AgentMessage) => {
                     this.handleAgentMessage(message);
+                    if (message.type === 'turn_complete') {
+                        turnInFlight = false;
+                        scheduleReadyAfterTurn();
+                        return;
+                    }
+                    if (readyAfterTurnTimer) {
+                        scheduleReadyAfterTurn();
+                    }
                 });
             } catch (error) {
                 logger.warn('[opencode-remote] prompt failed', error);
+                turnInFlight = false;
                 session.sendSessionEvent({
                     type: 'message',
                     message: 'OpenCode prompt failed. Check logs for details.'
                 });
                 messageBuffer.addMessage('OpenCode prompt failed', 'status');
             } finally {
+                turnInFlight = false;
                 session.onThinkingChange(false);
                 await this.permissionHandler?.cancelAll('Prompt finished');
                 if (session.queue.size() === 0 && !this.shouldExit) {
-                    sendReady();
+                    scheduleReadyAfterTurn();
+                } else {
+                    clearReadyAfterTurnTimer();
                 }
             }
         }
+        clearReadyAfterTurnTimer();
     }
 
     protected async cleanup(): Promise<void> {

@@ -143,7 +143,18 @@ export function collectToolIdsFromMessages(messages: NormalizedMessage[]): Set<s
 }
 
 export function isChangeTitleToolName(name: string): boolean {
-    return name === 'mcp__hapi__change_title' || name === 'hapi__change_title'
+    const normalized = name.trim().toLowerCase().replace(/[\s-]+/g, '_')
+    if (!normalized) {
+        return false
+    }
+
+    return normalized === 'mcp__hapi__change_title'
+        || normalized === 'hapi__change_title'
+        || normalized === 'hapi_change_title'
+        || normalized === 'change_title'
+        || normalized === 'change_chat_title'
+        || normalized.endsWith('hapi__change_title')
+        || normalized.endsWith('hapi_change_title')
 }
 
 export function extractTitleFromChangeTitleInput(input: unknown): string | null {

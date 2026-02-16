@@ -60,4 +60,35 @@ describe('AcpMessageHandler', () => {
         expect(result.status).toBe('completed');
         expect(result.output).toEqual({ stdout: 'ok\n' });
     });
+
+    it('keeps buffered text behind tool lifecycle events', () => {
+        const messages: AgentMessage[] = [];
+        const handler = new AcpMessageHandler((message) => messages.push(message));
+
+        handler.handleUpdate({
+            sessionUpdate: ACP_SESSION_UPDATE_TYPES.agentMessageChunk,
+            content: { type: 'text', text: 'final answer' }
+        });
+
+        handler.handleUpdate({
+            sessionUpdate: ACP_SESSION_UPDATE_TYPES.toolCall,
+            toolCallId: 'tool-3',
+            title: 'Read',
+            rawInput: { path: 'README.md' },
+            status: 'in_progress'
+        });
+
+        handler.handleUpdate({
+            sessionUpdate: ACP_SESSION_UPDATE_TYPES.toolCallUpdate,
+            toolCallId: 'tool-3',
+            status: 'completed',
+            rawOutput: { content: 'ok' }
+        });
+
+        handler.flushText();
+
+        expect(messages.map((message) => message.type)).toEqual(['tool_call', 'tool_result', 'text']);
+        const textMessage = messages[messages.length - 1];
+        expect(textMessage).toEqual({ type: 'text', text: 'final answer' });
+    });
 });

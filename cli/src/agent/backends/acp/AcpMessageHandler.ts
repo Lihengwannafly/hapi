@@ -99,19 +99,16 @@ export class AcpMessageHandler {
         }
 
         if (updateType === ACP_SESSION_UPDATE_TYPES.toolCall) {
-            this.flushText();
             this.handleToolCall(update);
             return;
         }
 
         if (updateType === ACP_SESSION_UPDATE_TYPES.toolCallUpdate) {
-            this.flushText();
             this.handleToolCallUpdate(update);
             return;
         }
 
         if (updateType === ACP_SESSION_UPDATE_TYPES.plan) {
-            this.flushText();
             const items = normalizePlanEntries(update.entries);
             if (items.length > 0) {
                 this.onMessage({ type: 'plan', items });

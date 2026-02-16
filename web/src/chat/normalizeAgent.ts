@@ -31,6 +31,13 @@ function normalizeAgentEvent(value: unknown): AgentEvent | null {
     return value as AgentEvent
 }
 
+function normalizeToolCallStatus(value: unknown): 'pending' | 'in_progress' | 'completed' | 'failed' | undefined {
+    if (value === 'pending' || value === 'in_progress' || value === 'completed' || value === 'failed') {
+        return value
+    }
+    return undefined
+}
+
 function normalizeAssistantOutput(
     messageId: string,
     localId: string | null,
@@ -338,6 +345,7 @@ export function normalizeAgentRecord(
                     name: asString(data.name) ?? 'unknown',
                     input: data.input,
                     description: null,
+                    status: normalizeToolCallStatus(data.status),
                     uuid,
                     parentUUID: null
                 }],
@@ -347,6 +355,9 @@ export function normalizeAgentRecord(
 
         if (data.type === 'tool-call-result' && typeof data.callId === 'string') {
             const uuid = asString(data.id) ?? messageId
+            const isError = data.is_error === true
+                || data.isError === true
+                || data.status === 'failed'
             return {
                 id: messageId,
                 localId,
@@ -357,7 +368,7 @@ export function normalizeAgentRecord(
                     type: 'tool-result',
                     tool_use_id: data.callId,
                     content: data.output,
-                    is_error: false,
+                    is_error: isError,
                     uuid,
                     parentUUID: null
                 }],

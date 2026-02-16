@@ -76,16 +76,158 @@ function extractChanges(value: unknown): Record<string, unknown> | null {
     return null;
 }
 
+function extractTextFromContent(value: unknown): string | null {
+    if (typeof value === 'string' && value.length > 0) {
+        return value;
+    }
+
+    if (!Array.isArray(value)) {
+        return null;
+    }
+
+    const chunks: string[] = [];
+    for (const entry of value) {
+        const record = asRecord(entry);
+        if (!record) continue;
+        const text = asString(record.text ?? record.message ?? record.content);
+        if (text) {
+            chunks.push(text);
+        }
+    }
+
+    if (chunks.length === 0) {
+        return null;
+    }
+
+    return chunks.join('');
+}
+
+function extractItemText(item: Record<string, unknown>): string | null {
+    return asString(item.text ?? item.message) ?? extractTextFromContent(item.content);
+}
+
+function extractReasoningText(item: Record<string, unknown>): string | null {
+    const direct = extractItemText(item);
+    if (direct) {
+        return direct;
+    }
+
+    const summary = item.summary_text ?? item.summaryText;
+    if (Array.isArray(summary)) {
+        const chunks = summary.filter((part): part is string => typeof part === 'string' && part.length > 0);
+        if (chunks.length > 0) {
+            return chunks.join('\n');
+        }
+    }
+
+    return null;
+}
+
 export class AppServerEventConverter {
     private readonly agentMessageBuffers = new Map<string, string>();
     private readonly reasoningBuffers = new Map<string, string>();
     private readonly commandOutputBuffers = new Map<string, string>();
     private readonly commandMeta = new Map<string, Record<string, unknown>>();
     private readonly fileChangeMeta = new Map<string, Record<string, unknown>>();
+    private readonly completedAgentMessageItems = new Set<string>();
+    private readonly completedReasoningItems = new Set<string>();
+    private readonly reasoningSectionBreakKeys = new Set<string>();
+
+    private handleWrappedCodexEvent(paramsRecord: Record<string, unknown>): ConvertedEvent[] | null {
+        const msg = asRecord(paramsRecord.msg);
+        if (!msg) {
+            return [];
+        }
+
+        const msgType = asString(msg.type);
+        if (!msgType) {
+            return [];
+        }
+
+        if (msgType === 'item_started' || msgType === 'item_completed') {
+            const itemMethod = msgType === 'item_started' ? 'item/started' : 'item/completed';
+            const item = asRecord(msg.item) ?? {};
+            const params: Record<string, unknown> = {
+                item,
+                itemId: asString(msg.item_id ?? msg.itemId ?? item.id),
+                threadId: asString(msg.thread_id ?? msg.threadId),
+                turnId: asString(msg.turn_id ?? msg.turnId)
+            };
+            return this.handleNotification(itemMethod, params);
+        }
+
+        if (msgType === 'agent_message_delta' || msgType === 'agent_message_content_delta') {
+            const itemId = asString(msg.item_id ?? msg.itemId ?? msg.id) ?? 'agent-message';
+            const delta = asString(msg.delta ?? msg.text ?? msg.message);
+            if (!delta) return [];
+            return this.handleNotification('item/agentMessage/delta', { itemId, delta });
+        }
+
+        if (msgType === 'reasoning_content_delta') {
+            const itemId = asString(msg.item_id ?? msg.itemId ?? msg.id) ?? 'reasoning';
+            const delta = asString(msg.delta ?? msg.text ?? msg.message);
+            if (!delta) return [];
+            return this.handleNotification('item/reasoning/summaryTextDelta', { itemId, delta });
+        }
+
+        if (msgType === 'agent_reasoning_section_break') {
+            const itemId = asString(msg.item_id ?? msg.itemId ?? msg.id) ?? 'reasoning';
+            const summaryIndex = asNumber(msg.summary_index ?? msg.summaryIndex);
+            return this.handleNotification('item/reasoning/summaryPartAdded', {
+                itemId,
+                ...(summaryIndex !== null ? { summaryIndex } : {})
+            });
+        }
+
+        if (msgType === 'agent_reasoning_delta' || msgType === 'agent_reasoning' || msgType === 'agent_message') {
+            return [];
+        }
+
+        if (msgType === 'exec_command_output_delta') {
+            const itemId = asString(msg.call_id ?? msg.callId ?? msg.item_id ?? msg.itemId ?? msg.id);
+            const delta = asString(msg.delta ?? msg.output ?? msg.stdout ?? msg.text);
+            if (!itemId || !delta) return [];
+            return this.handleNotification('item/commandExecution/outputDelta', { itemId, delta });
+        }
+
+        if (msgType === 'error') {
+            const errorRecord = asRecord(msg.error);
+            const willRetry = asBoolean(msg.will_retry ?? msg.willRetry ?? errorRecord?.will_retry ?? errorRecord?.willRetry) ?? false;
+            if (willRetry) {
+                return [];
+            }
+            const error = asString(msg.message ?? msg.reason ?? errorRecord?.message);
+            return error ? [{ type: 'task_failed', error }] : [];
+        }
+
+        if (
+            msgType === 'mcp_startup_update' ||
+            msgType === 'mcp_startup_complete' ||
+            msgType === 'plan_update' ||
+            msgType === 'skills_update_available' ||
+            msgType === 'stream_error' ||
+            msgType === 'warning' ||
+            msgType === 'context_compacted' ||
+            msgType === 'terminal_interaction' ||
+            msgType === 'user_message'
+        ) {
+            return [];
+        }
+
+        return [msg as ConvertedEvent];
+    }
 
     handleNotification(method: string, params: unknown): ConvertedEvent[] {
         const events: ConvertedEvent[] = [];
         const paramsRecord = asRecord(params) ?? {};
+
+        if (method.startsWith('codex/event/')) {
+            return this.handleWrappedCodexEvent(paramsRecord) ?? events;
+        }
+
+        if (method === 'account/rateLimits/updated' || method === 'turn/plan/updated' || method === 'thread/compacted') {
+            return events;
+        }
 
         if (method === 'thread/started' || method === 'thread/resumed') {
             const thread = asRecord(paramsRecord.thread) ?? paramsRecord;
@@ -158,7 +300,7 @@ export class AppServerEventConverter {
             return events;
         }
 
-        if (method === 'item/reasoning/textDelta') {
+        if (method === 'item/reasoning/textDelta' || method === 'item/reasoning/summaryTextDelta') {
             const itemId = extractItemId(paramsRecord) ?? 'reasoning';
             const delta = asString(paramsRecord.delta ?? paramsRecord.text ?? paramsRecord.message);
             if (delta) {
@@ -170,6 +312,15 @@ export class AppServerEventConverter {
         }
 
         if (method === 'item/reasoning/summaryPartAdded') {
+            const itemId = extractItemId(paramsRecord) ?? 'reasoning';
+            const summaryIndex = asNumber(paramsRecord.summaryIndex ?? paramsRecord.summary_index);
+            if (summaryIndex !== null) {
+                const key = `${itemId}:${summaryIndex}`;
+                if (this.reasoningSectionBreakKeys.has(key)) {
+                    return events;
+                }
+                this.reasoningSectionBreakKeys.add(key);
+            }
             events.push({ type: 'agent_reasoning_section_break' });
             return events;
         }
@@ -197,22 +348,30 @@ export class AppServerEventConverter {
 
             if (itemType === 'agentmessage') {
                 if (method === 'item/completed') {
-                    const text = asString(item.text ?? item.message ?? item.content) ?? this.agentMessageBuffers.get(itemId);
+                    if (this.completedAgentMessageItems.has(itemId)) {
+                        return events;
+                    }
+                    const text = extractItemText(item) ?? this.agentMessageBuffers.get(itemId);
                     if (text) {
                         events.push({ type: 'agent_message', message: text });
+                        this.completedAgentMessageItems.add(itemId);
+                        this.agentMessageBuffers.delete(itemId);
                     }
-                    this.agentMessageBuffers.delete(itemId);
                 }
                 return events;
             }
 
             if (itemType === 'reasoning') {
                 if (method === 'item/completed') {
-                    const text = asString(item.text ?? item.message ?? item.content) ?? this.reasoningBuffers.get(itemId);
+                    if (this.completedReasoningItems.has(itemId)) {
+                        return events;
+                    }
+                    const text = extractReasoningText(item) ?? this.reasoningBuffers.get(itemId);
                     if (text) {
                         events.push({ type: 'agent_reasoning', text });
+                        this.completedReasoningItems.add(itemId);
+                        this.reasoningBuffers.delete(itemId);
                     }
-                    this.reasoningBuffers.delete(itemId);
                 }
                 return events;
             }
@@ -309,5 +468,8 @@ export class AppServerEventConverter {
         this.commandOutputBuffers.clear();
         this.commandMeta.clear();
         this.fileChangeMeta.clear();
+        this.completedAgentMessageItems.clear();
+        this.completedReasoningItems.clear();
+        this.reasoningSectionBreakKeys.clear();
     }
 }

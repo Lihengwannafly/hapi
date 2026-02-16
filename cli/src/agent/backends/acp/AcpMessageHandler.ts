@@ -167,8 +167,7 @@ export class AcpMessageHandler {
         }
 
         if (status === 'completed' || status === 'failed') {
-            const output = update.rawOutput ?? update.content;
-            const result = output ?? { status };
+            const result = update.rawOutput ?? update.content;
             this.onMessage({
                 type: 'tool_result',
                 id: toolCallId,

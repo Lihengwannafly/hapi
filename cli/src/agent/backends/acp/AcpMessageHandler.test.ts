@@ -123,6 +123,41 @@ describe('AcpMessageHandler', () => {
         expect(messages).toEqual([{ type: 'text', text: 'assistant-visible' }]);
     });
 
+    it('supports annotations array format for audience filtering', () => {
+        const messages: AgentMessage[] = [];
+        const handler = new AcpMessageHandler((message) => messages.push(message));
+
+        handler.handleUpdate({
+            sessionUpdate: ACP_SESSION_UPDATE_TYPES.agentMessageChunk,
+            content: {
+                type: 'text',
+                text: 'user-only',
+                annotations: [
+                    {
+                        audience: ['user']
+                    }
+                ]
+            }
+        });
+
+        handler.handleUpdate({
+            sessionUpdate: ACP_SESSION_UPDATE_TYPES.agentMessageChunk,
+            content: {
+                type: 'text',
+                text: 'assistant-only',
+                annotations: [
+                    {
+                        audience: ['assistant']
+                    }
+                ]
+            }
+        });
+
+        handler.flushText();
+
+        expect(messages).toEqual([{ type: 'text', text: 'assistant-only' }]);
+    });
+
     it('deduplicates overlapping text chunks', () => {
         const messages: AgentMessage[] = [];
         const handler = new AcpMessageHandler((message) => messages.push(message));

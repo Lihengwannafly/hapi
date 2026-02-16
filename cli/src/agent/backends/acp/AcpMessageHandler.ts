@@ -21,15 +21,46 @@ function deriveToolNameFromUpdate(update: Record<string, unknown>): string {
 function extractTextContent(block: unknown): string | null {
     if (!isObject(block)) return null;
     if (block.type !== 'text') return null;
-    const annotations = isObject(block.annotations) ? block.annotations : null;
-    if (annotations && Array.isArray(annotations.audience)) {
-        const explicitAudience = annotations.audience.filter((entry): entry is string => typeof entry === 'string');
-        if (explicitAudience.length > 0 && !explicitAudience.includes('assistant')) {
-            return null;
-        }
+    const explicitAudience = extractExplicitAudience(block.annotations);
+    if (explicitAudience.length > 0 && !explicitAudience.includes('assistant')) {
+        return null;
     }
     const text = block.text;
     return typeof text === 'string' ? text : null;
+}
+
+function extractExplicitAudience(annotations: unknown): string[] {
+    if (Array.isArray(annotations)) {
+        const audiences: string[] = [];
+        for (const entry of annotations) {
+            if (typeof entry === 'string') {
+                audiences.push(entry);
+                continue;
+            }
+            if (!isObject(entry)) {
+                continue;
+            }
+            audiences.push(...extractAudienceField(entry.audience));
+            if (isObject(entry.value)) {
+                audiences.push(...extractAudienceField(entry.value.audience));
+            }
+        }
+        return audiences;
+    }
+    if (isObject(annotations)) {
+        return extractAudienceField(annotations.audience);
+    }
+    return [];
+}
+
+function extractAudienceField(value: unknown): string[] {
+    if (typeof value === 'string') {
+        return [value];
+    }
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
 function normalizePlanEntries(entries: unknown): PlanItem[] {

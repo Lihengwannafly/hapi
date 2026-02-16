@@ -91,4 +91,59 @@ describe('AcpMessageHandler', () => {
         const textMessage = messages[messages.length - 1];
         expect(textMessage).toEqual({ type: 'text', text: 'final answer' });
     });
+
+    it('ignores text chunks targeted only to user audience', () => {
+        const messages: AgentMessage[] = [];
+        const handler = new AcpMessageHandler((message) => messages.push(message));
+
+        handler.handleUpdate({
+            sessionUpdate: ACP_SESSION_UPDATE_TYPES.agentMessageChunk,
+            content: {
+                type: 'text',
+                text: 'user-visible only',
+                annotations: {
+                    audience: ['user']
+                }
+            }
+        });
+
+        handler.handleUpdate({
+            sessionUpdate: ACP_SESSION_UPDATE_TYPES.agentMessageChunk,
+            content: {
+                type: 'text',
+                text: 'assistant-visible',
+                annotations: {
+                    audience: ['assistant']
+                }
+            }
+        });
+
+        handler.flushText();
+
+        expect(messages).toEqual([{ type: 'text', text: 'assistant-visible' }]);
+    });
+
+    it('deduplicates overlapping text chunks', () => {
+        const messages: AgentMessage[] = [];
+        const handler = new AcpMessageHandler((message) => messages.push(message));
+
+        handler.handleUpdate({
+            sessionUpdate: ACP_SESSION_UPDATE_TYPES.agentMessageChunk,
+            content: { type: 'text', text: 'hello wo' }
+        });
+
+        handler.handleUpdate({
+            sessionUpdate: ACP_SESSION_UPDATE_TYPES.agentMessageChunk,
+            content: { type: 'text', text: 'world' }
+        });
+
+        handler.handleUpdate({
+            sessionUpdate: ACP_SESSION_UPDATE_TYPES.agentMessageChunk,
+            content: { type: 'text', text: 'world' }
+        });
+
+        handler.flushText();
+
+        expect(messages).toEqual([{ type: 'text', text: 'hello world' }]);
+    });
 });

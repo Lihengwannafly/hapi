@@ -159,6 +159,7 @@ export class AcpSdkBackend implements AgentBackend {
         this.messageHandler = new AcpMessageHandler(onUpdate);
         this.isProcessingMessage = true;
         this.lastSessionUpdateAt = Date.now();
+        let stopReason: string | null = null;
 
         try {
             // No timeout for prompt requests - they can run for extended periods
@@ -168,19 +169,21 @@ export class AcpSdkBackend implements AgentBackend {
                 prompt: content
             }, { timeoutMs: Infinity });
 
-            const stopReason = isObject(response) ? asString(response.stopReason) : null;
-            if (stopReason) {
-                this.messageHandler?.flushText();
-                onUpdate({ type: 'turn_complete', stopReason });
-            }
+            stopReason = isObject(response) ? asString(response.stopReason) : null;
         } finally {
             await this.waitForSessionUpdateQuiet(
                 AcpSdkBackend.UPDATE_QUIET_PERIOD_MS,
                 AcpSdkBackend.UPDATE_DRAIN_TIMEOUT_MS
             );
             this.messageHandler?.flushText();
-            this.isProcessingMessage = false;
-            this.notifyResponseComplete();
+            try {
+                if (stopReason) {
+                    onUpdate({ type: 'turn_complete', stopReason });
+                }
+            } finally {
+                this.isProcessingMessage = false;
+                this.notifyResponseComplete();
+            }
         }
     }
 

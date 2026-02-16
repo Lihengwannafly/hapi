@@ -21,6 +21,13 @@ function deriveToolNameFromUpdate(update: Record<string, unknown>): string {
 function extractTextContent(block: unknown): string | null {
     if (!isObject(block)) return null;
     if (block.type !== 'text') return null;
+    const annotations = isObject(block.annotations) ? block.annotations : null;
+    if (annotations && Array.isArray(annotations.audience)) {
+        const explicitAudience = annotations.audience.filter((entry): entry is string => typeof entry === 'string');
+        if (explicitAudience.length > 0 && !explicitAudience.includes('assistant')) {
+            return null;
+        }
+    }
     const text = block.text;
     return typeof text === 'string' ? text : null;
 }
@@ -43,6 +50,16 @@ function normalizePlanEntries(entries: unknown): PlanItem[] {
     }
 
     return items;
+}
+
+function getSuffixPrefixOverlap(base: string, next: string): number {
+    const maxOverlap = Math.min(base.length, next.length);
+    for (let length = maxOverlap; length > 0; length -= 1) {
+        if (base.endsWith(next.slice(0, length))) {
+            return length;
+        }
+    }
+    return 0;
 }
 
 export class AcpMessageHandler {
@@ -77,6 +94,20 @@ export class AcpMessageHandler {
         if (this.bufferedText.startsWith(text)) {
             return;
         }
+        if (this.bufferedText.endsWith(text)) {
+            return;
+        }
+        if (text.endsWith(this.bufferedText)) {
+            this.bufferedText = text;
+            return;
+        }
+
+        const overlap = getSuffixPrefixOverlap(this.bufferedText, text);
+        if (overlap > 0) {
+            this.bufferedText += text.slice(overlap);
+            return;
+        }
+
         this.bufferedText += text;
     }
 

@@ -250,6 +250,10 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             }
 
             if (isTerminalEvent) {
+                if (useAppServer && !eventTurnId && this.currentTurnId) {
+                    logger.debug(`[Codex] Ignoring ambiguous terminal event ${msgType} without turn_id; active turn ${this.currentTurnId}`);
+                    return;
+                }
                 if (eventTurnId && this.currentTurnId && eventTurnId !== this.currentTurnId) {
                     logger.debug(`[Codex] Ignoring stale terminal event ${msgType} for turn ${eventTurnId}; active turn ${this.currentTurnId}`);
                     return;

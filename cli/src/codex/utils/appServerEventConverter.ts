@@ -156,6 +156,31 @@ export class AppServerEventConverter {
             return this.handleNotification(itemMethod, params);
         }
 
+        if (
+            msgType === 'task_started' ||
+            msgType === 'task_complete' ||
+            msgType === 'turn_aborted' ||
+            msgType === 'task_failed'
+        ) {
+            const turnId = asString(msg.turn_id ?? msg.turnId);
+            if ((msgType === 'task_complete' || msgType === 'turn_aborted' || msgType === 'task_failed') && !turnId) {
+                logger.debug('[AppServerEventConverter] Ignoring wrapped terminal event without turn_id', { msgType });
+                return [];
+            }
+
+            const event: ConvertedEvent = { type: msgType };
+            if (turnId) {
+                event.turn_id = turnId;
+            }
+            if (msgType === 'task_failed') {
+                const error = asString(msg.error ?? msg.message ?? asRecord(msg.error)?.message);
+                if (error) {
+                    event.error = error;
+                }
+            }
+            return [event];
+        }
+
         if (msgType === 'agent_message_delta' || msgType === 'agent_message_content_delta') {
             const itemId = asString(msg.item_id ?? msg.itemId ?? msg.id) ?? 'agent-message';
             const delta = asString(msg.delta ?? msg.text ?? msg.message);

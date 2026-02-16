@@ -134,6 +134,16 @@ describe('AppServerEventConverter', () => {
         expect(completed).toEqual([{ type: 'task_complete', turn_id: 'turn-1' }]);
     });
 
+    it('ignores wrapped terminal lifecycle events without turn_id', () => {
+        const converter = new AppServerEventConverter();
+
+        const completed = converter.handleNotification('codex/event/task_complete', {
+            msg: { type: 'task_complete' }
+        });
+
+        expect(completed).toEqual([]);
+    });
+
     it('unwraps codex/event agent deltas and item completion', () => {
         const converter = new AppServerEventConverter();
 

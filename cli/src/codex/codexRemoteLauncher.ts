@@ -18,6 +18,7 @@ import { buildCodexStartConfig } from './utils/codexStartConfig';
 import { AppServerEventConverter } from './utils/appServerEventConverter';
 import { registerAppServerPermissionHandlers } from './utils/appServerPermissionAdapter';
 import { buildThreadStartParams, buildTurnStartParams } from './utils/appServerConfig';
+import { shouldIgnoreTerminalEvent } from './utils/terminalEventGuard';
 import {
     RemoteLauncherBase,
     type RemoteLauncherDisplayContext,
@@ -226,6 +227,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
         let readyAfterTurnTimer: ReturnType<typeof setTimeout> | null = null;
         let scheduleReadyAfterTurn: (() => void) | null = null;
         let clearReadyAfterTurnTimer: (() => void) | null = null;
+        let turnInFlight = false;
 
         const handleCodexEvent = (msg: Record<string, unknown>) => {
             const msgType = asString(msg.type);
@@ -250,12 +252,16 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             }
 
             if (isTerminalEvent) {
-                if (useAppServer && !eventTurnId && this.currentTurnId) {
-                    logger.debug(`[Codex] Ignoring ambiguous terminal event ${msgType} without turn_id; active turn ${this.currentTurnId}`);
-                    return;
-                }
-                if (eventTurnId && this.currentTurnId && eventTurnId !== this.currentTurnId) {
-                    logger.debug(`[Codex] Ignoring stale terminal event ${msgType} for turn ${eventTurnId}; active turn ${this.currentTurnId}`);
+                if (shouldIgnoreTerminalEvent({
+                    useAppServer,
+                    eventTurnId,
+                    currentTurnId: this.currentTurnId,
+                    turnInFlight
+                })) {
+                    logger.debug(
+                        `[Codex] Ignoring terminal event ${msgType} without matching turn context; ` +
+                        `eventTurnId=${eventTurnId ?? 'none'}, activeTurn=${this.currentTurnId ?? 'none'}, turnInFlight=${turnInFlight}`
+                    );
                     return;
                 }
                 this.currentTurnId = null;
@@ -572,7 +578,6 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
         let currentModeHash: string | null = null;
         let pending: { message: string; mode: EnhancedMode; isolate: boolean; hash: string } | null = null;
         let first = true;
-        let turnInFlight = false;
 
         clearReadyAfterTurnTimer = () => {
             if (!readyAfterTurnTimer) {

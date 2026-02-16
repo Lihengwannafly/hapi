@@ -48,7 +48,10 @@ function extractExplicitAudience(annotations: unknown): string[] {
         return audiences;
     }
     if (isObject(annotations)) {
-        return extractAudienceField(annotations.audience);
+        return [
+            ...extractAudienceField(annotations.audience),
+            ...(isObject(annotations.value) ? extractAudienceField(annotations.value.audience) : [])
+        ];
     }
     return [];
 }

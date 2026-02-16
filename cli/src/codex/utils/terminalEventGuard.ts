@@ -3,9 +3,12 @@ export type TerminalEventGuardInput = {
     eventTurnId: string | null;
     currentTurnId: string | null;
     turnInFlight: boolean;
+    allowAnonymousTerminalEvent?: boolean;
 };
 
 export function shouldIgnoreTerminalEvent(input: TerminalEventGuardInput): boolean {
+    const allowAnonymousTerminalEvent = input.allowAnonymousTerminalEvent === true;
+
     if (!input.useAppServer) {
         return false;
     }
@@ -18,7 +21,7 @@ export function shouldIgnoreTerminalEvent(input: TerminalEventGuardInput): boole
         return true;
     }
 
-    if (input.turnInFlight) {
+    if (input.turnInFlight && !allowAnonymousTerminalEvent) {
         return true;
     }
 

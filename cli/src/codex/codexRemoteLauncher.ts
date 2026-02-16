@@ -228,6 +228,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
         let scheduleReadyAfterTurn: (() => void) | null = null;
         let clearReadyAfterTurnTimer: (() => void) | null = null;
         let turnInFlight = false;
+        let allowAnonymousTerminalEvent = false;
 
         const handleCodexEvent = (msg: Record<string, unknown>) => {
             const msgType = asString(msg.type);
@@ -248,6 +249,9 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 const turnId = eventTurnId;
                 if (turnId) {
                     this.currentTurnId = turnId;
+                    allowAnonymousTerminalEvent = false;
+                } else if (useAppServer && !this.currentTurnId) {
+                    allowAnonymousTerminalEvent = true;
                 }
             }
 
@@ -256,15 +260,18 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     useAppServer,
                     eventTurnId,
                     currentTurnId: this.currentTurnId,
-                    turnInFlight
+                    turnInFlight,
+                    allowAnonymousTerminalEvent
                 })) {
                     logger.debug(
                         `[Codex] Ignoring terminal event ${msgType} without matching turn context; ` +
-                        `eventTurnId=${eventTurnId ?? 'none'}, activeTurn=${this.currentTurnId ?? 'none'}, turnInFlight=${turnInFlight}`
+                        `eventTurnId=${eventTurnId ?? 'none'}, activeTurn=${this.currentTurnId ?? 'none'}, ` +
+                        `turnInFlight=${turnInFlight}, allowAnonymous=${allowAnonymousTerminalEvent}`
                     );
                     return;
                 }
                 this.currentTurnId = null;
+                allowAnonymousTerminalEvent = false;
             }
 
             if (!useAppServer) {
@@ -322,6 +329,9 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 clearReadyAfterTurnTimer?.();
                 if (useAppServer) {
                     turnInFlight = true;
+                    if (!eventTurnId && !this.currentTurnId) {
+                        allowAnonymousTerminalEvent = true;
+                    }
                 }
                 if (!session.thinking) {
                     logger.debug('thinking started');
@@ -331,6 +341,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             if (isTerminalEvent) {
                 if (useAppServer) {
                     turnInFlight = false;
+                    allowAnonymousTerminalEvent = false;
                 }
                 if (session.thinking) {
                     logger.debug('thinking completed');
@@ -696,6 +707,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                             cliOverrides: session.codexCliOverrides
                         });
                         turnInFlight = true;
+                        allowAnonymousTerminalEvent = false;
                         const turnResponse = await appServerClient.startTurn(turnParams, {
                             signal: this.abortController.signal
                         });
@@ -704,6 +716,8 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                         const turnId = asString(turn?.id);
                         if (turnId) {
                             this.currentTurnId = turnId;
+                        } else if (!this.currentTurnId) {
+                            allowAnonymousTerminalEvent = true;
                         }
                     } else if (mcpClient) {
                         const startConfig: CodexSessionConfig = buildCodexStartConfig({
@@ -735,6 +749,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                         cliOverrides: session.codexCliOverrides
                     });
                     turnInFlight = true;
+                    allowAnonymousTerminalEvent = false;
                     const turnResponse = await appServerClient.startTurn(turnParams, {
                         signal: this.abortController.signal
                     });
@@ -743,6 +758,8 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     const turnId = asString(turn?.id);
                     if (turnId) {
                         this.currentTurnId = turnId;
+                    } else if (!this.currentTurnId) {
+                        allowAnonymousTerminalEvent = true;
                     }
                 } else if (mcpClient) {
                     await mcpClient.continueSession(message.message, { signal: this.abortController.signal });
@@ -753,6 +770,8 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 const isAbortError = error instanceof Error && error.name === 'AbortError';
                 if (useAppServer) {
                     turnInFlight = false;
+                    allowAnonymousTerminalEvent = false;
+                    this.currentTurnId = null;
                 }
 
                 if (isAbortError) {

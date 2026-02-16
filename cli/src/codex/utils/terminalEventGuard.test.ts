@@ -35,6 +35,30 @@ describe('shouldIgnoreTerminalEvent', () => {
         expect(ignored).toBe(true);
     });
 
+    it('accepts terminal events without turn_id when anonymous terminal is explicitly allowed', () => {
+        const ignored = shouldIgnoreTerminalEvent({
+            useAppServer: true,
+            eventTurnId: null,
+            currentTurnId: null,
+            turnInFlight: true,
+            allowAnonymousTerminalEvent: true
+        });
+
+        expect(ignored).toBe(false);
+    });
+
+    it('still ignores terminal events without turn_id when current turn id exists', () => {
+        const ignored = shouldIgnoreTerminalEvent({
+            useAppServer: true,
+            eventTurnId: null,
+            currentTurnId: 'turn-1',
+            turnInFlight: true,
+            allowAnonymousTerminalEvent: true
+        });
+
+        expect(ignored).toBe(true);
+    });
+
     it('ignores stale terminal events from another turn', () => {
         const ignored = shouldIgnoreTerminalEvent({
             useAppServer: true,

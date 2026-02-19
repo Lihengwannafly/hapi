@@ -37,7 +37,7 @@ type TerminalErrorPayload = {
 export function useTerminalSocket(options: UseTerminalSocketOptions): {
     state: TerminalConnectionState
     connect: (cols: number, rows: number) => void
-    write: (data: string) => void
+    write: (data: string) => boolean
     resize: (cols: number, rows: number) => void
     disconnect: () => void
     onOutput: (handler: (data: string) => void) => void
@@ -181,12 +181,13 @@ export function useTerminalSocket(options: UseTerminalSocketOptions): {
         socket.connect()
     }, [emitCreate, setErrorState, isCurrentTerminal])
 
-    const write = useCallback((data: string) => {
+    const write = useCallback((data: string): boolean => {
         const socket = socketRef.current
         if (!socket || !socket.connected) {
-            return
+            return false
         }
         socket.emit('terminal:write', { terminalId: terminalIdRef.current, data })
+        return true
     }, [])
 
     const resize = useCallback((cols: number, rows: number) => {

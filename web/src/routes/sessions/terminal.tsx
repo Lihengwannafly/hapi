@@ -186,6 +186,7 @@ export default function TerminalPage() {
     const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null)
     const modifierStateRef = useRef<ModifierState>({ ctrl: false, alt: false })
     const [exitInfo, setExitInfo] = useState<{ code: number | null; signal: string | null } | null>(null)
+    const [inputDispatchError, setInputDispatchError] = useState<string | null>(null)
     const [ctrlActive, setCtrlActive] = useState(false)
     const [altActive, setAltActive] = useState(false)
 
@@ -227,14 +228,39 @@ export default function TerminalPage() {
         setAltActive(false)
     }, [])
 
+    useEffect(() => {
+        if (!inputDispatchError) {
+            return
+        }
+        const timer = window.setTimeout(() => {
+            setInputDispatchError(null)
+        }, 2500)
+        return () => {
+            window.clearTimeout(timer)
+        }
+    }, [inputDispatchError])
+
+    const writePlainInput = useCallback((data: string): boolean => {
+        if (!session?.active || terminalState.status !== 'connected') {
+            return false
+        }
+        return write(data)
+    }, [session?.active, terminalState.status, write])
+
     const dispatchSequence = useCallback(
-        (sequence: string, modifierState: ModifierState) => {
-            write(applyModifierState(sequence, modifierState))
+        (sequence: string, modifierState: ModifierState, options?: { reportFailure?: boolean }) => {
+            const sent = writePlainInput(applyModifierState(sequence, modifierState))
+            if (!sent) {
+                if (options?.reportFailure) {
+                    setInputDispatchError('Terminal disconnected. Input was not sent.')
+                }
+                return
+            }
             if (shouldResetModifiers(sequence, modifierState)) {
                 resetModifiers()
             }
         },
-        [write, resetModifiers]
+        [writePlainInput, resetModifiers]
     )
 
     const handleTerminalMount = useCallback(
@@ -318,7 +344,7 @@ export default function TerminalPage() {
                 return
             }
             const modifierState = { ctrl: ctrlActive, alt: altActive }
-            dispatchSequence(sequence, modifierState)
+            dispatchSequence(sequence, modifierState, { reportFailure: true })
             terminalRef.current?.focus()
         },
         [quickInputDisabled, ctrlActive, altActive, dispatchSequence]
@@ -384,6 +410,14 @@ export default function TerminalPage() {
                 <div className="mx-auto w-full max-w-content px-3 pt-3">
                     <div className="rounded-md border border-[var(--app-badge-error-border)] bg-[var(--app-badge-error-bg)] p-3 text-xs text-[var(--app-badge-error-text)]">
                         {errorMessage}
+                    </div>
+                </div>
+            ) : null}
+
+            {inputDispatchError ? (
+                <div className="mx-auto w-full max-w-content px-3 pt-3">
+                    <div className="rounded-md border border-[var(--app-badge-error-border)] bg-[var(--app-badge-error-bg)] p-3 text-xs text-[var(--app-badge-error-text)]">
+                        {inputDispatchError}
                     </div>
                 </div>
             ) : null}

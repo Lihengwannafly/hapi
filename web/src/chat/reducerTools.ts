@@ -68,7 +68,15 @@ export function ensureToolBlock(
     if (existing) {
         const isPlaceholderToolName = (name: string): boolean => {
             const normalized = name.trim().toLowerCase()
-            return normalized === '' || normalized === 'tool' || normalized === 'unknown'
+            return normalized === ''
+                || normalized === 'tool'
+                || normalized === 'unknown'
+                || normalized === 'other'
+                || normalized === 'execute'
+                || normalized === 'fetch'
+                || normalized === 'edit'
+                || normalized === 'search'
+                || normalized === 'read'
         }
 
         // Preserve earliest createdAt for stable ordering.

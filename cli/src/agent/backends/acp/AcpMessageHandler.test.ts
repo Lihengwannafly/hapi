@@ -216,4 +216,59 @@ describe('AcpMessageHandler', () => {
 
         expect(messages).toEqual([{ type: 'text', text: 'hello world' }]);
     });
+
+    it('keeps existing tool name when update only has kind fallback', () => {
+        const messages: AgentMessage[] = [];
+        const handler = new AcpMessageHandler((message) => messages.push(message));
+
+        handler.handleUpdate({
+            sessionUpdate: ACP_SESSION_UPDATE_TYPES.toolCall,
+            toolCallId: 'tool-4',
+            title: 'hapi_change_title',
+            rawInput: { title: 'A' },
+            status: 'in_progress'
+        });
+
+        handler.handleUpdate({
+            sessionUpdate: ACP_SESSION_UPDATE_TYPES.toolCallUpdate,
+            toolCallId: 'tool-4',
+            kind: 'other',
+            rawInput: { title: 'B' },
+            status: 'in_progress'
+        });
+
+        const calls = messages.filter((message): message is Extract<AgentMessage, { type: 'tool_call' }> =>
+            message.type === 'tool_call'
+        );
+        expect(calls).toHaveLength(2);
+        expect(calls[0].name).toBe('hapi_change_title');
+        expect(calls[1].name).toBe('hapi_change_title');
+    });
+
+    it('allows kind fallback to replace placeholder tool name', () => {
+        const messages: AgentMessage[] = [];
+        const handler = new AcpMessageHandler((message) => messages.push(message));
+
+        handler.handleUpdate({
+            sessionUpdate: ACP_SESSION_UPDATE_TYPES.toolCall,
+            toolCallId: 'tool-5',
+            rawInput: { foo: 'bar' },
+            status: 'in_progress'
+        });
+
+        handler.handleUpdate({
+            sessionUpdate: ACP_SESSION_UPDATE_TYPES.toolCallUpdate,
+            toolCallId: 'tool-5',
+            kind: 'search',
+            rawInput: { foo: 'baz' },
+            status: 'in_progress'
+        });
+
+        const calls = messages.filter((message): message is Extract<AgentMessage, { type: 'tool_call' }> =>
+            message.type === 'tool_call'
+        );
+        expect(calls).toHaveLength(2);
+        expect(calls[0].name).toBe('Tool');
+        expect(calls[1].name).toBe('search');
+    });
 });

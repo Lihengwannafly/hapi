@@ -1,6 +1,6 @@
 import type { AgentMessage, PlanItem } from '@/agent/types';
 import { asString, isObject } from '@hapi/protocol';
-import { deriveToolName } from '@/agent/utils';
+import { deriveToolNameWithSource, isPlaceholderToolName } from '@/agent/utils';
 import { ACP_SESSION_UPDATE_TYPES } from './constants';
 
 function normalizeStatus(status: unknown): 'pending' | 'in_progress' | 'completed' | 'failed' {
@@ -10,8 +10,10 @@ function normalizeStatus(status: unknown): 'pending' | 'in_progress' | 'complete
     return 'pending';
 }
 
-function deriveToolNameFromUpdate(update: Record<string, unknown>): string {
-    return deriveToolName({
+type DerivedToolName = ReturnType<typeof deriveToolNameWithSource>;
+
+function deriveToolNameFromUpdate(update: Record<string, unknown>): DerivedToolName {
+    return deriveToolNameWithSource({
         title: asString(update.title),
         kind: asString(update.kind),
         rawInput: update.rawInput
@@ -185,7 +187,8 @@ export class AcpMessageHandler {
         const toolCallId = asString(update.toolCallId);
         if (!toolCallId) return;
 
-        const name = deriveToolNameFromUpdate(update);
+        const derivedName = deriveToolNameFromUpdate(update);
+        const name = derivedName.name;
         const input = update.rawInput ?? null;
         const status = normalizeStatus(update.status);
 
@@ -208,7 +211,8 @@ export class AcpMessageHandler {
         const existing = this.toolCalls.get(toolCallId);
 
         if (update.rawInput !== undefined) {
-            const name = deriveToolNameFromUpdate(update);
+            const derivedName = deriveToolNameFromUpdate(update);
+            const name = this.selectToolNameForUpdate(existing?.name ?? null, derivedName);
             const input = update.rawInput;
             this.toolCalls.set(toolCallId, { name, input });
             this.onMessage({
@@ -237,5 +241,25 @@ export class AcpMessageHandler {
                 status: status === 'failed' ? 'failed' : 'completed'
             });
         }
+    }
+
+    private selectToolNameForUpdate(existingName: string | null, derivedName: DerivedToolName): string {
+        if (!existingName) {
+            return derivedName.name;
+        }
+
+        if (
+            derivedName.source === 'title' ||
+            derivedName.source === 'raw_input_name' ||
+            derivedName.source === 'raw_input_tool'
+        ) {
+            return derivedName.name;
+        }
+
+        if (isPlaceholderToolName(existingName)) {
+            return derivedName.name;
+        }
+
+        return existingName;
     }
 }

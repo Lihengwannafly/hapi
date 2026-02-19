@@ -26,6 +26,16 @@ const denyBodySchema = z.object({
     decision: decisionSchema.optional()
 })
 
+function mapPermissionErrorStatus(message: string): 404 | 409 | 500 {
+    if (message.includes('local mode')) {
+        return 409
+    }
+    if (message.includes('Session not found')) {
+        return 404
+    }
+    return 500
+}
+
 export function createPermissionsRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
 
@@ -64,8 +74,13 @@ export function createPermissionsRoutes(getSyncEngine: () => SyncEngine | null):
         const allowTools = parsed.data.allowTools
         const decision = parsed.data.decision
         const answers = parsed.data.answers
-        await engine.approvePermission(sessionId, requestId, mode, allowTools, decision, answers)
-        return c.json({ ok: true })
+        try {
+            await engine.approvePermission(sessionId, requestId, mode, allowTools, decision, answers)
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to approve permission'
+            return c.json({ error: message }, mapPermissionErrorStatus(message))
+        }
     })
 
     app.post('/sessions/:id/permissions/:requestId/deny', async (c) => {
@@ -93,8 +108,13 @@ export function createPermissionsRoutes(getSyncEngine: () => SyncEngine | null):
             return c.json({ error: 'Invalid body' }, 400)
         }
 
-        await engine.denyPermission(sessionId, requestId, parsed.data.decision)
-        return c.json({ ok: true })
+        try {
+            await engine.denyPermission(sessionId, requestId, parsed.data.decision)
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to deny permission'
+            return c.json({ error: message }, mapPermissionErrorStatus(message))
+        }
     })
 
     return app

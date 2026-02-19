@@ -76,6 +76,53 @@ function buildToolSignature(name: string, input: unknown): string {
     return `${name}:${hashObject(input ?? null)}`;
 }
 
+function getSuffixPrefixOverlap(base: string, next: string): number {
+    const maxOverlap = Math.min(base.length, next.length);
+    for (let length = maxOverlap; length > 0; length -= 1) {
+        if (base.endsWith(next.slice(0, length))) {
+            return length;
+        }
+    }
+    return 0;
+}
+
+function appendTextDelta(base: string, delta: string): string {
+    if (!base) {
+        return delta;
+    }
+    if (!delta) {
+        return base;
+    }
+    if (base.endsWith(delta)) {
+        return base;
+    }
+    const overlap = getSuffixPrefixOverlap(base, delta);
+    return `${base}${delta.slice(overlap)}`;
+}
+
+function extractUnsentText(previous: string, next: string): string {
+    if (!next) {
+        return '';
+    }
+    if (!previous) {
+        return next;
+    }
+    if (next === previous) {
+        return '';
+    }
+    if (next.startsWith(previous)) {
+        return next.slice(previous.length);
+    }
+    if (previous.startsWith(next)) {
+        return '';
+    }
+    const overlap = getSuffixPrefixOverlap(previous, next);
+    if (overlap > 0) {
+        return next.slice(overlap);
+    }
+    return next;
+}
+
 function pushQueue(map: Map<string, string[]>, key: string, value: string): void {
     const queue = map.get(key) ?? [];
     queue.push(value);
@@ -316,6 +363,7 @@ export async function opencodeLocalLauncher(
     const sentToolCalls = new Set<string>();
     const sentToolResults = new Set<string>();
     const textBuffers = new Map<string, string>();
+    const emittedTextSnapshots = new Map<string, string>();
     const toolExecutionQueues = new Map<string, string[]>();
 
     const handleHookEvent = (event: OpencodeHookEvent) => {
@@ -374,31 +422,54 @@ export async function opencodeLocalLauncher(
                 const role = (messageId && messageRoles.get(messageId)) ?? 'assistant';
                 const key = partId ?? messageId;
                 const bufferValue = key ? textBuffers.get(key) ?? '' : '';
+                const emittedValue = key ? emittedTextSnapshots.get(key) ?? '' : '';
                 const textFromPart = getString(part.text);
-                const nextBuffer = delta ? bufferValue + delta : bufferValue;
+                let nextText = bufferValue;
+
+                if (delta) {
+                    nextText = appendTextDelta(nextText, delta);
+                }
+
+                if (textFromPart) {
+                    if (!nextText || textFromPart.startsWith(nextText) || !nextText.startsWith(textFromPart)) {
+                        nextText = textFromPart;
+                    }
+                }
 
                 if (key && (delta || textFromPart)) {
-                    textBuffers.set(key, textFromPart ?? nextBuffer);
+                    textBuffers.set(key, nextText);
                 }
 
                 const time = isObject(part.time) ? part.time as Record<string, unknown> : null;
                 const hasEnd = time ? getNumber(time.end) !== null : false;
+                const shouldFinalize = role === 'user' || part.synthetic === true || hasEnd;
                 const shouldFlush = role === 'user'
                     || part.synthetic === true
                     || hasEnd
                     || (!delta && Boolean(textFromPart));
-                const text = textFromPart ?? (key ? textBuffers.get(key) : null);
+                const text = nextText || (key ? textBuffers.get(key) : null);
                 if (shouldFlush && text) {
+                    const unsentText = extractUnsentText(emittedValue, text);
                     if (role === 'user') {
-                        session.sendUserMessage(text);
+                        if (unsentText) {
+                            session.sendUserMessage(unsentText);
+                        }
                     } else {
-                        session.sendCodexMessage({ type: 'message', message: text });
+                        if (unsentText) {
+                            session.sendCodexMessage({ type: 'message', message: unsentText });
+                        }
                     }
+                    if (key) {
+                        emittedTextSnapshots.set(key, text);
+                    }
+                }
+                if (shouldFinalize) {
                     if (partId) {
                         sentTextParts.add(partId);
                     }
                     if (key) {
                         textBuffers.delete(key);
+                        emittedTextSnapshots.delete(key);
                     }
                 }
                 return;

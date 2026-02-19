@@ -237,6 +237,17 @@ export class SyncEngine {
         await this.messageService.sendMessage(sessionId, payload)
     }
 
+    private ensureRemotePermissionControl(sessionId: string): void {
+        const session = this.getSession(sessionId)
+        if (!session) {
+            throw new Error('Session not found')
+        }
+
+        if (session.agentState?.controlledByUser === true) {
+            throw new Error('Session is in local mode. Handle permissions in the local terminal.')
+        }
+    }
+
     async approvePermission(
         sessionId: string,
         requestId: string,
@@ -245,6 +256,7 @@ export class SyncEngine {
         decision?: 'approved' | 'approved_for_session' | 'denied' | 'abort',
         answers?: Record<string, string[]> | Record<string, { answers: string[] }>
     ): Promise<void> {
+        this.ensureRemotePermissionControl(sessionId)
         await this.rpcGateway.approvePermission(sessionId, requestId, mode, allowTools, decision, answers)
     }
 
@@ -253,6 +265,7 @@ export class SyncEngine {
         requestId: string,
         decision?: 'approved' | 'approved_for_session' | 'denied' | 'abort'
     ): Promise<void> {
+        this.ensureRemotePermissionControl(sessionId)
         await this.rpcGateway.denyPermission(sessionId, requestId, decision)
     }
 

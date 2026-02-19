@@ -41,6 +41,8 @@ export function SessionChat(props: {
     const { haptic } = usePlatform()
     const navigate = useNavigate()
     const sessionInactive = !props.session.active
+    const controlledByUser = props.session.agentState?.controlledByUser === true
+    const toolActionsDisabled = sessionInactive || controlledByUser
     const normalizedCacheRef = useRef<Map<string, { source: DecryptedMessage; normalized: NormalizedMessage | null }>>(new Map())
     const blocksByIdRef = useRef<Map<string, ChatBlock>>(new Map())
     const [forceScrollToken, setForceScrollToken] = useState(0)
@@ -60,15 +62,21 @@ export function SessionChat(props: {
             getSession: () => props.session as { agentState?: { requests?: Record<string, unknown> } } | null,
             sendMessage: (_sessionId: string, message: string) => props.onSend(message),
             approvePermission: async (_sessionId: string, requestId: string) => {
+                if (controlledByUser) {
+                    throw new Error('Session is in local mode. Handle permissions in the local terminal.')
+                }
                 await props.api.approvePermission(props.session.id, requestId)
                 props.onRefresh()
             },
             denyPermission: async (_sessionId: string, requestId: string) => {
+                if (controlledByUser) {
+                    throw new Error('Session is in local mode. Handle permissions in the local terminal.')
+                }
                 await props.api.denyPermission(props.session.id, requestId)
                 props.onRefresh()
             }
         })
-    }, [props.session, props.api, props.onSend, props.onRefresh])
+    }, [props.session, props.api, props.onSend, props.onRefresh, controlledByUser])
 
     useEffect(() => {
         registerVoiceHooksStore(
@@ -282,6 +290,14 @@ export function SessionChat(props: {
                 </div>
             ) : null}
 
+            {controlledByUser ? (
+                <div className="px-3 pt-3">
+                    <div className="mx-auto w-full max-w-content rounded-md bg-[var(--app-subtle-bg)] p-3 text-sm text-[var(--app-hint)]">
+                        Session is in local mode. Handle permission prompts in the local terminal.
+                    </div>
+                </div>
+            ) : null}
+
             <AssistantRuntimeProvider runtime={runtime}>
                 <div className="relative flex min-h-0 flex-1 flex-col">
                     <HappyThread
@@ -289,7 +305,7 @@ export function SessionChat(props: {
                         api={props.api}
                         sessionId={props.session.id}
                         metadata={props.session.metadata}
-                        disabled={sessionInactive}
+                        disabled={toolActionsDisabled}
                         onRefresh={props.onRefresh}
                         onRetryMessage={props.onRetryMessage}
                         onFlushPending={props.onFlushPending}
@@ -316,7 +332,7 @@ export function SessionChat(props: {
                         thinking={props.session.thinking}
                         agentState={props.session.agentState}
                         contextSize={reduced.latestUsage?.contextSize}
-                        controlledByUser={props.session.agentState?.controlledByUser === true}
+                        controlledByUser={controlledByUser}
                         onPermissionModeChange={handlePermissionModeChange}
                         onModelModeChange={handleModelModeChange}
                         onSwitchToRemote={handleSwitchToRemote}

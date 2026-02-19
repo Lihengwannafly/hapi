@@ -252,12 +252,25 @@ export default function TerminalPage() {
         }
     }, [inputDispatchError])
 
-    const writePlainInput = useCallback((data: string): boolean => {
-        if (!session?.active || terminalState.status !== 'connected') {
+    const writePlainInput = useCallback((data: string, options?: { resetModifiers?: boolean; focusTerminal?: boolean }): boolean => {
+        if (!data || !session?.active || terminalState.status !== 'connected') {
             return false
         }
-        return write(data)
-    }, [session?.active, terminalState.status, write])
+
+        const sent = write(data)
+        if (!sent) {
+            return false
+        }
+
+        if (options?.resetModifiers) {
+            resetModifiers()
+        }
+        if (options?.focusTerminal) {
+            terminalRef.current?.focus()
+        }
+
+        return true
+    }, [session?.active, terminalState.status, write, resetModifiers])
 
     const dispatchSequence = useCallback(
         (sequence: string, modifierState: ModifierState, options?: { reportFailure?: boolean }) => {
@@ -350,15 +363,6 @@ export default function TerminalPage() {
     }, [terminalState.status])
 
     const quickInputDisabled = !session?.active || terminalState.status !== 'connected'
-    const writePlainInput = useCallback((text: string) => {
-        if (!text || quickInputDisabled) {
-            return false
-        }
-        write(text)
-        resetModifiers()
-        terminalRef.current?.focus()
-        return true
-    }, [quickInputDisabled, write, resetModifiers])
 
     const handlePasteAction = useCallback(async () => {
         if (quickInputDisabled) {
@@ -371,9 +375,11 @@ export default function TerminalPage() {
                 if (!clipboardText) {
                     return
                 }
-                if (writePlainInput(clipboardText)) {
+                if (writePlainInput(clipboardText, { resetModifiers: true, focusTerminal: true })) {
                     return
                 }
+                setInputDispatchError('Terminal disconnected. Input was not sent.')
+                return
             } catch {
                 // Fall through to manual paste modal.
             }
@@ -386,10 +392,12 @@ export default function TerminalPage() {
         if (!manualPasteText.trim()) {
             return
         }
-        if (writePlainInput(manualPasteText)) {
+        if (writePlainInput(manualPasteText, { resetModifiers: true, focusTerminal: true })) {
             setPasteDialogOpen(false)
             setManualPasteText('')
+            return
         }
+        setInputDispatchError('Terminal disconnected. Input was not sent.')
     }, [manualPasteText, writePlainInput])
 
     const handleQuickInput = useCallback(

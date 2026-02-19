@@ -106,4 +106,47 @@ describe('tool status reconciliation', () => {
         expect(tool.tool.state).toBe('error')
         expect(tool.tool.result).toBeUndefined()
     })
+
+    it('keeps concrete tool name when tool result arrives without permission entry', () => {
+        const messages: NormalizedMessage[] = [
+            {
+                id: 'm3',
+                localId: null,
+                createdAt: 1000,
+                role: 'agent',
+                isSidechain: false,
+                content: [{
+                    type: 'tool-call',
+                    id: 'call-5',
+                    name: 'Read',
+                    input: { path: 'README.md' },
+                    description: null,
+                    status: 'in_progress',
+                    uuid: 'm3',
+                    parentUUID: null
+                }]
+            },
+            {
+                id: 'm4',
+                localId: null,
+                createdAt: 1001,
+                role: 'agent',
+                isSidechain: false,
+                content: [{
+                    type: 'tool-result',
+                    tool_use_id: 'call-5',
+                    content: { ok: true },
+                    is_error: false,
+                    uuid: 'm4',
+                    parentUUID: null
+                }]
+            }
+        ]
+
+        const reduced = reduceChatBlocks(messages, null)
+        const tool = getFirstToolBlock(reduced.blocks)
+
+        expect(tool.tool.name).toBe('Read')
+        expect(tool.tool.state).toBe('completed')
+    })
 })

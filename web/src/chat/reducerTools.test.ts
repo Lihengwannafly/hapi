@@ -65,4 +65,27 @@ describe('ensureToolBlock tool name precedence', () => {
 
         expect(updated.tool.name).toBe('search')
     })
+
+    it('does not replace concrete read tool name with Tool fallback', () => {
+        const blocks: ChatBlock[] = []
+        const toolBlocksById = new Map<string, ToolCallBlock>()
+
+        ensureToolBlock(blocks, toolBlocksById, 'tool-3', {
+            createdAt: 1,
+            localId: null,
+            name: 'Read',
+            input: { path: 'README.md' },
+            description: null
+        })
+
+        const updated = ensureToolBlock(blocks, toolBlocksById, 'tool-3', {
+            createdAt: 2,
+            localId: null,
+            name: 'Tool',
+            input: null,
+            description: null
+        })
+
+        expect(updated.tool.name).toBe('Read')
+    })
 })

@@ -72,11 +72,6 @@ export function ensureToolBlock(
                 || normalized === 'tool'
                 || normalized === 'unknown'
                 || normalized === 'other'
-                || normalized === 'execute'
-                || normalized === 'fetch'
-                || normalized === 'edit'
-                || normalized === 'search'
-                || normalized === 'read'
         }
 
         // Preserve earliest createdAt for stable ordering.

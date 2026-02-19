@@ -218,13 +218,14 @@ export function reduceTimeline(
                         }
                         return permissionFromResult ?? permissionEntry?.permission
                     })()
+                    const existingToolBlock = toolBlocksById.get(c.tool_use_id)
 
                     const block = ensureToolBlock(blocks, toolBlocksById, c.tool_use_id, {
                         createdAt: msg.createdAt,
                         localId: msg.localId,
                         meta: msg.meta,
-                        name: permissionEntry?.toolName ?? 'Tool',
-                        input: permissionEntry?.input ?? null,
+                        name: permissionEntry?.toolName ?? existingToolBlock?.tool.name ?? 'Tool',
+                        input: permissionEntry?.input ?? existingToolBlock?.tool.input ?? null,
                         description: null,
                         permission
                     })

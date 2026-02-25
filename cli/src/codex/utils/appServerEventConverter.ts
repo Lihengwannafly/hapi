@@ -82,6 +82,9 @@ export class AppServerEventConverter {
     private readonly commandOutputBuffers = new Map<string, string>();
     private readonly commandMeta = new Map<string, Record<string, unknown>>();
     private readonly fileChangeMeta = new Map<string, Record<string, unknown>>();
+    private readonly lastAgentMessageDeltaByItemId = new Map<string, string>();
+    private readonly lastReasoningDeltaByItemId = new Map<string, string>();
+    private readonly lastCommandOutputDeltaByItemId = new Map<string, string>();
 
     handleNotification(method: string, params: unknown): ConvertedEvent[] {
         const events: ConvertedEvent[] = [];
@@ -152,6 +155,11 @@ export class AppServerEventConverter {
             const itemId = extractItemId(paramsRecord);
             const delta = asString(paramsRecord.delta ?? paramsRecord.text ?? paramsRecord.message);
             if (itemId && delta) {
+                const lastDelta = this.lastAgentMessageDeltaByItemId.get(itemId);
+                if (lastDelta === delta) {
+                    return events;
+                }
+                this.lastAgentMessageDeltaByItemId.set(itemId, delta);
                 const prev = this.agentMessageBuffers.get(itemId) ?? '';
                 this.agentMessageBuffers.set(itemId, prev + delta);
             }
@@ -162,6 +170,11 @@ export class AppServerEventConverter {
             const itemId = extractItemId(paramsRecord) ?? 'reasoning';
             const delta = asString(paramsRecord.delta ?? paramsRecord.text ?? paramsRecord.message);
             if (delta) {
+                const lastDelta = this.lastReasoningDeltaByItemId.get(itemId);
+                if (lastDelta === delta) {
+                    return events;
+                }
+                this.lastReasoningDeltaByItemId.set(itemId, delta);
                 const prev = this.reasoningBuffers.get(itemId) ?? '';
                 this.reasoningBuffers.set(itemId, prev + delta);
                 events.push({ type: 'agent_reasoning_delta', delta });
@@ -178,6 +191,11 @@ export class AppServerEventConverter {
             const itemId = extractItemId(paramsRecord);
             const delta = asString(paramsRecord.delta ?? paramsRecord.text ?? paramsRecord.output ?? paramsRecord.stdout);
             if (itemId && delta) {
+                const lastDelta = this.lastCommandOutputDeltaByItemId.get(itemId);
+                if (lastDelta === delta) {
+                    return events;
+                }
+                this.lastCommandOutputDeltaByItemId.set(itemId, delta);
                 const prev = this.commandOutputBuffers.get(itemId) ?? '';
                 this.commandOutputBuffers.set(itemId, prev + delta);
             }
@@ -202,6 +220,7 @@ export class AppServerEventConverter {
                         events.push({ type: 'agent_message', message: text });
                     }
                     this.agentMessageBuffers.delete(itemId);
+                    this.lastAgentMessageDeltaByItemId.delete(itemId);
                 }
                 return events;
             }
@@ -213,6 +232,7 @@ export class AppServerEventConverter {
                         events.push({ type: 'agent_reasoning', text });
                     }
                     this.reasoningBuffers.delete(itemId);
+                    this.lastReasoningDeltaByItemId.delete(itemId);
                 }
                 return events;
             }
@@ -256,6 +276,7 @@ export class AppServerEventConverter {
 
                     this.commandMeta.delete(itemId);
                     this.commandOutputBuffers.delete(itemId);
+                    this.lastCommandOutputDeltaByItemId.delete(itemId);
                 }
 
                 return events;
@@ -309,5 +330,8 @@ export class AppServerEventConverter {
         this.commandOutputBuffers.clear();
         this.commandMeta.clear();
         this.fileChangeMeta.clear();
+        this.lastAgentMessageDeltaByItemId.clear();
+        this.lastReasoningDeltaByItemId.clear();
+        this.lastCommandOutputDeltaByItemId.clear();
     }
 }

@@ -77,6 +77,22 @@ describe('AppServerEventConverter', () => {
         expect(events).toEqual([{ type: 'agent_reasoning_delta', delta: 'step' }]);
     });
 
+    it('dedupes duplicate reasoning deltas', () => {
+        const converter = new AppServerEventConverter();
+
+        expect(converter.handleNotification('item/reasoning/textDelta', { itemId: 'r1', delta: 'Hello ' }))
+            .toEqual([{ type: 'agent_reasoning_delta', delta: 'Hello ' }]);
+        expect(converter.handleNotification('item/reasoning/textDelta', { itemId: 'r1', delta: 'Hello ' }))
+            .toEqual([]);
+        converter.handleNotification('item/reasoning/textDelta', { itemId: 'r1', delta: 'world' });
+
+        const completed = converter.handleNotification('item/completed', {
+            item: { id: 'r1', type: 'reasoning' }
+        });
+
+        expect(completed).toEqual([{ type: 'agent_reasoning', text: 'Hello world' }]);
+    });
+
     it('maps diff updates', () => {
         const converter = new AppServerEventConverter();
 

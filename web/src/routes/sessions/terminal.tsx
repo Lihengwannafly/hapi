@@ -196,6 +196,7 @@ export default function TerminalPage() {
     const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null)
     const modifierStateRef = useRef<ModifierState>({ ctrl: false, alt: false })
     const [exitInfo, setExitInfo] = useState<{ code: number | null; signal: string | null } | null>(null)
+    const [inputDispatchError, setInputDispatchError] = useState<string | null>(null)
     const [ctrlActive, setCtrlActive] = useState(false)
     const [altActive, setAltActive] = useState(false)
     const [pasteDialogOpen, setPasteDialogOpen] = useState(false)
@@ -239,14 +240,52 @@ export default function TerminalPage() {
         setAltActive(false)
     }, [])
 
+    useEffect(() => {
+        if (!inputDispatchError) {
+            return
+        }
+        const timer = window.setTimeout(() => {
+            setInputDispatchError(null)
+        }, 2500)
+        return () => {
+            window.clearTimeout(timer)
+        }
+    }, [inputDispatchError])
+
+    const writePlainInput = useCallback((data: string, options?: { resetModifiers?: boolean; focusTerminal?: boolean }): boolean => {
+        if (!data || !session?.active || terminalState.status !== 'connected') {
+            return false
+        }
+
+        const sent = write(data)
+        if (!sent) {
+            return false
+        }
+
+        if (options?.resetModifiers) {
+            resetModifiers()
+        }
+        if (options?.focusTerminal) {
+            terminalRef.current?.focus()
+        }
+
+        return true
+    }, [session?.active, terminalState.status, write, resetModifiers])
+
     const dispatchSequence = useCallback(
-        (sequence: string, modifierState: ModifierState) => {
-            write(applyModifierState(sequence, modifierState))
+        (sequence: string, modifierState: ModifierState, options?: { reportFailure?: boolean }) => {
+            const sent = writePlainInput(applyModifierState(sequence, modifierState))
+            if (!sent) {
+                if (options?.reportFailure) {
+                    setInputDispatchError(t('terminal.inputDispatchError.disconnected'))
+                }
+                return
+            }
             if (shouldResetModifiers(sequence, modifierState)) {
                 resetModifiers()
             }
         },
-        [write, resetModifiers]
+        [writePlainInput, resetModifiers, t]
     )
 
     const handleTerminalMount = useCallback(
@@ -324,15 +363,6 @@ export default function TerminalPage() {
     }, [terminalState.status])
 
     const quickInputDisabled = !session?.active || terminalState.status !== 'connected'
-    const writePlainInput = useCallback((text: string) => {
-        if (!text || quickInputDisabled) {
-            return false
-        }
-        write(text)
-        resetModifiers()
-        terminalRef.current?.focus()
-        return true
-    }, [quickInputDisabled, write, resetModifiers])
 
     const handlePasteAction = useCallback(async () => {
         if (quickInputDisabled) {
@@ -345,26 +375,30 @@ export default function TerminalPage() {
                 if (!clipboardText) {
                     return
                 }
-                if (writePlainInput(clipboardText)) {
+                if (writePlainInput(clipboardText, { resetModifiers: true, focusTerminal: true })) {
                     return
                 }
+                setInputDispatchError(t('terminal.inputDispatchError.disconnected'))
+                return
             } catch {
                 // Fall through to manual paste modal.
             }
         }
         setManualPasteText('')
         setPasteDialogOpen(true)
-    }, [quickInputDisabled, writePlainInput])
+    }, [quickInputDisabled, writePlainInput, t])
 
     const handleManualPasteSubmit = useCallback(() => {
         if (!manualPasteText.trim()) {
             return
         }
-        if (writePlainInput(manualPasteText)) {
+        if (writePlainInput(manualPasteText, { resetModifiers: true, focusTerminal: true })) {
             setPasteDialogOpen(false)
             setManualPasteText('')
+            return
         }
-    }, [manualPasteText, writePlainInput])
+        setInputDispatchError(t('terminal.inputDispatchError.disconnected'))
+    }, [manualPasteText, writePlainInput, t])
 
     const handleQuickInput = useCallback(
         (sequence: string) => {
@@ -372,7 +406,7 @@ export default function TerminalPage() {
                 return
             }
             const modifierState = { ctrl: ctrlActive, alt: altActive }
-            dispatchSequence(sequence, modifierState)
+            dispatchSequence(sequence, modifierState, { reportFailure: true })
             terminalRef.current?.focus()
         },
         [quickInputDisabled, ctrlActive, altActive, dispatchSequence]
@@ -438,6 +472,14 @@ export default function TerminalPage() {
                 <div className="mx-auto w-full max-w-content px-3 pt-3">
                     <div className="rounded-md border border-[var(--app-badge-error-border)] bg-[var(--app-badge-error-bg)] p-3 text-xs text-[var(--app-badge-error-text)]">
                         {errorMessage}
+                    </div>
+                </div>
+            ) : null}
+
+            {inputDispatchError ? (
+                <div className="mx-auto w-full max-w-content px-3 pt-3">
+                    <div className="rounded-md border border-[var(--app-badge-error-border)] bg-[var(--app-badge-error-bg)] p-3 text-xs text-[var(--app-badge-error-text)]">
+                        {inputDispatchError}
                     </div>
                 </div>
             ) : null}

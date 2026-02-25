@@ -142,6 +142,7 @@ export default {
   'terminal.paste.fallbackTitle': '粘贴输入',
   'terminal.paste.fallbackDescription': '无法读取剪贴板，请在下方粘贴文本。',
   'terminal.paste.placeholder': '在此粘贴终端输入…',
+  'terminal.inputDispatchError.disconnected': '终端已断开，输入未发送。',
 
   // Code block
   'code.copy': '复制',

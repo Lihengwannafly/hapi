@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import { ThreadPrimitive } from '@assistant-ui/react'
 import type { ApiClient } from '@/api/client'
 import type { SessionMetadataSummary } from '@/types/api'
@@ -55,6 +55,22 @@ const THREAD_MESSAGE_COMPONENTS = {
     SystemMessage: HappySystemMessage
 } as const
 
+const NESTED_SCROLL_SELECTOR = '[data-thread-nested-scroll="true"]'
+const NESTED_SCROLL_GUARD_MS = 1_500
+
+function isNestedScrollInteractionTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) {
+        return false
+    }
+    const nestedScrollRegion = target.closest(NESTED_SCROLL_SELECTOR)
+    if (!(nestedScrollRegion instanceof HTMLElement)) {
+        return false
+    }
+
+    return nestedScrollRegion.scrollWidth > nestedScrollRegion.clientWidth
+        || nestedScrollRegion.scrollHeight > nestedScrollRegion.clientHeight
+}
+
 export function HappyThread(props: {
     api: ApiClient
     sessionId: string
@@ -91,10 +107,23 @@ export function HappyThread(props: {
     const onAtBottomChangeRef = useRef(props.onAtBottomChange)
     const onFlushPendingRef = useRef(props.onFlushPending)
     const forceScrollTokenRef = useRef(props.forceScrollToken)
+    const nestedScrollGuardUntilRef = useRef(0)
+    const nestedTouchActiveRef = useRef(false)
 
     // Smart scroll state: autoScroll enabled when user is near bottom
     const [autoScrollEnabled, setAutoScrollEnabled] = useState(true)
     const autoScrollEnabledRef = useRef(autoScrollEnabled)
+
+    const activateNestedScrollGuard = useCallback(() => {
+        nestedScrollGuardUntilRef.current = Date.now() + NESTED_SCROLL_GUARD_MS
+        if (autoScrollEnabledRef.current) {
+            setAutoScrollEnabled(false)
+        }
+        if (atBottomRef.current) {
+            atBottomRef.current = false
+            onAtBottomChangeRef.current(false)
+        }
+    }, [])
 
     // Keep refs in sync with state
     useEffect(() => {
@@ -126,17 +155,19 @@ export function HappyThread(props: {
         const handleScroll = () => {
             const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
             const isNearBottom = distanceFromBottom < THRESHOLD_PX
+            const nestedGuardActive = Date.now() < nestedScrollGuardUntilRef.current
+            const shouldAutoFollow = isNearBottom && !nestedGuardActive
 
-            if (isNearBottom) {
+            if (shouldAutoFollow) {
                 if (!autoScrollEnabledRef.current) setAutoScrollEnabled(true)
             } else if (autoScrollEnabledRef.current) {
                 setAutoScrollEnabled(false)
             }
 
-            if (isNearBottom !== atBottomRef.current) {
-                atBottomRef.current = isNearBottom
-                onAtBottomChangeRef.current(isNearBottom)
-                if (isNearBottom) {
+            if (shouldAutoFollow !== atBottomRef.current) {
+                atBottomRef.current = shouldAutoFollow
+                onAtBottomChangeRef.current(shouldAutoFollow)
+                if (shouldAutoFollow) {
                     onFlushPendingRef.current()
                 }
             }
@@ -152,6 +183,8 @@ export function HappyThread(props: {
         if (viewport) {
             viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' })
         }
+        nestedScrollGuardUntilRef.current = 0
+        nestedTouchActiveRef.current = false
         setAutoScrollEnabled(true)
         if (!atBottomRef.current) {
             atBottomRef.current = true
@@ -164,9 +197,39 @@ export function HappyThread(props: {
     useEffect(() => {
         setAutoScrollEnabled(true)
         atBottomRef.current = true
+        nestedScrollGuardUntilRef.current = 0
+        nestedTouchActiveRef.current = false
         onAtBottomChangeRef.current(true)
         forceScrollTokenRef.current = props.forceScrollToken
     }, [props.sessionId])
+
+    const handleWheelCapture = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+        if (!isNestedScrollInteractionTarget(event.target)) {
+            return
+        }
+        if (Math.abs(event.deltaX) < 0.1 && Math.abs(event.deltaY) < 0.1) {
+            return
+        }
+        activateNestedScrollGuard()
+    }, [activateNestedScrollGuard])
+
+    const handleTouchStartCapture = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+        nestedTouchActiveRef.current = isNestedScrollInteractionTarget(event.target)
+    }, [])
+
+    const handleTouchMoveCapture = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+        if (!nestedTouchActiveRef.current) {
+            return
+        }
+        if (!isNestedScrollInteractionTarget(event.target)) {
+            return
+        }
+        activateNestedScrollGuard()
+    }, [activateNestedScrollGuard])
+
+    const handleTouchEndCapture = useCallback(() => {
+        nestedTouchActiveRef.current = false
+    }, [])
 
     useEffect(() => {
         if (forceScrollTokenRef.current === props.forceScrollToken) {
@@ -279,7 +342,15 @@ export function HappyThread(props: {
         }}>
             <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col relative">
                 <ThreadPrimitive.Viewport asChild autoScroll={autoScrollEnabled}>
-                    <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+                    <div
+                        ref={viewportRef}
+                        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+                        onWheelCapture={handleWheelCapture}
+                        onTouchStartCapture={handleTouchStartCapture}
+                        onTouchMoveCapture={handleTouchMoveCapture}
+                        onTouchEndCapture={handleTouchEndCapture}
+                        onTouchCancel={handleTouchEndCapture}
+                    >
                         <div className="mx-auto w-full max-w-content min-w-0 p-3">
                             <div ref={topSentinelRef} className="h-px w-full" aria-hidden="true" />
                             {showSkeleton ? (

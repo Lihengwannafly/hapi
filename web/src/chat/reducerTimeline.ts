@@ -149,7 +149,22 @@ export function reduceTimeline(
                         permission
                     })
 
-                    if (block.tool.state === 'pending') {
+                    if (c.status === 'pending') {
+                        block.tool.state = 'pending'
+                        block.tool.startedAt = null
+                    } else if (c.status === 'in_progress') {
+                        block.tool.state = 'running'
+                        block.tool.startedAt = msg.createdAt
+                    } else if (c.status === 'completed' || c.status === 'failed') {
+                        block.tool.state = c.status === 'failed' ? 'error' : 'completed'
+                        if (block.tool.startedAt === null) {
+                            block.tool.startedAt = msg.createdAt
+                        }
+                        if (block.tool.completedAt === null) {
+                            block.tool.completedAt = msg.createdAt
+                        }
+                    } else if (block.tool.state === 'pending') {
+                        // Backward-compatible fallback for providers that don't send explicit status.
                         block.tool.state = 'running'
                         block.tool.startedAt = msg.createdAt
                     }
@@ -203,13 +218,14 @@ export function reduceTimeline(
                         }
                         return permissionFromResult ?? permissionEntry?.permission
                     })()
+                    const existingToolBlock = toolBlocksById.get(c.tool_use_id)
 
                     const block = ensureToolBlock(blocks, toolBlocksById, c.tool_use_id, {
                         createdAt: msg.createdAt,
                         localId: msg.localId,
                         meta: msg.meta,
-                        name: permissionEntry?.toolName ?? 'Tool',
-                        input: permissionEntry?.input ?? null,
+                        name: permissionEntry?.toolName ?? existingToolBlock?.tool.name ?? 'Tool',
+                        input: permissionEntry?.input ?? existingToolBlock?.tool.input ?? null,
                         description: null,
                         permission
                     })

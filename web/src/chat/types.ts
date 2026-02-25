@@ -34,6 +34,7 @@ export type ToolUse = {
     name: string
     input: unknown
     description: string | null
+    status?: 'pending' | 'in_progress' | 'completed' | 'failed'
     uuid: string
     parentUUID: string | null
 }

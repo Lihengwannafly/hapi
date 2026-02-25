@@ -140,6 +140,7 @@ export default {
   'terminal.paste.fallbackTitle': 'Paste input',
   'terminal.paste.fallbackDescription': 'Clipboard read is unavailable. Paste your text below.',
   'terminal.paste.placeholder': 'Paste terminal input here…',
+  'terminal.inputDispatchError.disconnected': 'Terminal disconnected. Input was not sent.',
 
   // Code block
   'code.copy': 'Copy',

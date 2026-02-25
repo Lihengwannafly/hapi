@@ -38,7 +38,10 @@ function Pre(props: ComponentPropsWithoutRef<'pre'>) {
     const { className, ...rest } = props
 
     return (
-        <div className="aui-md-pre-wrapper min-w-0 w-full max-w-full overflow-x-auto overflow-y-hidden">
+        <div
+            data-thread-nested-scroll="true"
+            className="aui-md-pre-wrapper min-w-0 w-full max-w-full overflow-x-auto overflow-y-hidden"
+        >
             <pre
                 {...rest}
                 className={cn(
@@ -121,7 +124,10 @@ function Table(props: ComponentPropsWithoutRef<'table'>) {
     const { className, ...rest } = props
 
     return (
-        <div className="aui-md-table-wrapper max-w-full overflow-x-auto">
+        <div
+            data-thread-nested-scroll="true"
+            className="aui-md-table-wrapper max-w-full overflow-x-auto"
+        >
             <table {...rest} className={cn('aui-md-table w-full border-collapse', className)} />
         </div>
     )

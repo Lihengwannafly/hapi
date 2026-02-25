@@ -19,6 +19,7 @@ export class AcpSdkBackend implements AgentBackend {
     private activeSessionId: string | null = null;
     private isProcessingMessage = false;
     private responseCompleteResolvers: Array<() => void> = [];
+    private lastSessionUpdateAt = 0;
 
     /** Retry configuration for ACP initialization */
     private static readonly INIT_RETRY_OPTIONS = {
@@ -143,6 +144,7 @@ export class AcpSdkBackend implements AgentBackend {
         this.activeSessionId = sessionId;
         this.messageHandler = new AcpMessageHandler(onUpdate);
         this.isProcessingMessage = true;
+        this.lastSessionUpdateAt = Date.now();
 
         try {
             // No timeout for prompt requests - they can run for extended periods
@@ -215,6 +217,10 @@ export class AcpSdkBackend implements AgentBackend {
         return this.isProcessingMessage;
     }
 
+    getLastSessionUpdateAt(): number {
+        return this.lastSessionUpdateAt;
+    }
+
     /**
      * Wait for any in-progress response to complete.
      * Resolves immediately if no response is being processed.
@@ -242,9 +248,9 @@ export class AcpSdkBackend implements AgentBackend {
         if (this.activeSessionId && sessionId && sessionId !== this.activeSessionId) {
             return;
         }
+        this.lastSessionUpdateAt = Date.now();
         const update = params.update;
-        if (!this.messageHandler) return;
-        this.messageHandler.handleUpdate(update);
+        this.messageHandler?.handleUpdate(update);
     }
 
     private async handlePermissionRequest(params: unknown, requestId: string | number | null): Promise<unknown> {

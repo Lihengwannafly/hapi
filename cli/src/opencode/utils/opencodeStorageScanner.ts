@@ -28,6 +28,13 @@ type SessionCandidate = {
     score: number;
 };
 
+type PendingPartEvent = {
+    part: Record<string, unknown>;
+    sessionId: string | undefined;
+    mtime: number | null;
+    path: string;
+};
+
 const DEFAULT_SESSION_START_WINDOW_MS = 2 * 60 * 1000;
 const DEFAULT_SCAN_INTERVAL_MS = 2000;
 const REPLAY_CLOCK_SKEW_MS = 2000;
@@ -66,7 +73,6 @@ class OpencodeStorageScanner {
     private warnedMissingStorage = false;
     private scanning = false;
 
-    private readonly messageRoles = new Map<string, string>();
     private readonly messageFileMtime = new Map<string, number>();
     private readonly partFileMtime = new Map<string, number>();
 
@@ -226,7 +232,6 @@ class OpencodeStorageScanner {
             return;
         }
         this.activeSessionId = sessionId;
-        this.messageRoles.clear();
         this.messageFileMtime.clear();
         this.partFileMtime.clear();
         await this.primeSessionFiles(sessionId);
@@ -236,13 +241,14 @@ class OpencodeStorageScanner {
 
     private async primeSessionFiles(sessionId: string): Promise<void> {
         const messageDir = join(this.storageDir, 'message', sessionId);
-        const messageFiles = await listJsonFiles(messageDir);
+        const messageFiles = await listJsonFilesWithMtime(messageDir);
         const messageIds: string[] = [];
         const replayMessageIds = new Set<string>();
         const replayThresholdMs = this.referenceTimestampMs - REPLAY_CLOCK_SKEW_MS;
 
-        for (const filePath of messageFiles) {
-            const mtime = await readMtime(filePath);
+        for (const file of messageFiles) {
+            const filePath = file.path;
+            const mtime = file.mtime;
             if (mtime !== null) {
                 this.messageFileMtime.set(filePath, mtime);
             }
@@ -250,10 +256,6 @@ class OpencodeStorageScanner {
             const messageId = getString(info?.id) ?? filenameToId(filePath);
             if (messageId) {
                 messageIds.push(messageId);
-                const role = getString(info?.role);
-                if (role) {
-                    this.messageRoles.set(messageId, role);
-                }
             }
             const timestamp = getMessageTimestamp(info, mtime);
             if (messageId && info && timestamp !== null && timestamp >= replayThresholdMs) {
@@ -267,11 +269,14 @@ class OpencodeStorageScanner {
             }
         }
 
+        const replayPartEvents: PendingPartEvent[] = [];
+
         for (const messageId of messageIds) {
             const partDir = join(this.storageDir, 'part', messageId);
-            const partFiles = await listJsonFiles(partDir);
-            for (const partPath of partFiles) {
-                const mtime = await readMtime(partPath);
+            const partFiles = await listJsonFilesWithMtime(partDir);
+            for (const partFile of partFiles) {
+                const partPath = partFile.path;
+                const mtime = partFile.mtime;
                 if (mtime !== null) {
                     this.partFileMtime.set(partPath, mtime);
                 }
@@ -286,27 +291,38 @@ class OpencodeStorageScanner {
                     continue;
                 }
                 const eventSessionId = getString(part.sessionID) ?? sessionId;
-                this.onEvent({
-                    event: 'message.part.updated',
-                    payload: { part },
-                    sessionId: eventSessionId || undefined
+                replayPartEvents.push({
+                    part,
+                    sessionId: eventSessionId || undefined,
+                    mtime,
+                    path: partPath
                 });
             }
+        }
+
+        replayPartEvents.sort(compareFileByTimeThenPath);
+        for (const event of replayPartEvents) {
+            this.onEvent({
+                event: 'message.part.updated',
+                payload: { part: event.part },
+                sessionId: event.sessionId
+            });
         }
     }
 
     private async scanMessagesAndParts(sessionId: string): Promise<void> {
         const messageDir = join(this.storageDir, 'message', sessionId);
-        const messageFiles = await listJsonFiles(messageDir);
+        const messageFiles = await listJsonFilesWithMtime(messageDir);
         const messageIds: string[] = [];
 
-        for (const filePath of messageFiles) {
+        for (const file of messageFiles) {
+            const filePath = file.path;
             const messageIdFromPath = filenameToId(filePath);
             if (messageIdFromPath) {
                 messageIds.push(messageIdFromPath);
             }
 
-            const mtime = await readMtime(filePath);
+            const mtime = file.mtime;
             if (mtime === null) {
                 continue;
             }
@@ -321,14 +337,6 @@ class OpencodeStorageScanner {
                 continue;
             }
 
-            const messageId = getString(info.id) ?? messageIdFromPath;
-            if (messageId) {
-                const role = getString(info.role);
-                if (role) {
-                    this.messageRoles.set(messageId, role);
-                }
-            }
-
             const eventSessionId = getString(info.sessionID) ?? sessionId;
             this.onEvent({
                 event: 'message.updated',
@@ -337,12 +345,15 @@ class OpencodeStorageScanner {
             });
         }
 
+        const pendingPartEvents: PendingPartEvent[] = [];
+
         for (const messageId of messageIds) {
             const partDir = join(this.storageDir, 'part', messageId);
-            const partFiles = await listJsonFiles(partDir);
+            const partFiles = await listJsonFilesWithMtime(partDir);
 
-            for (const partPath of partFiles) {
-                const mtime = await readMtime(partPath);
+            for (const partFile of partFiles) {
+                const partPath = partFile.path;
+                const mtime = partFile.mtime;
                 if (mtime === null) {
                     continue;
                 }
@@ -362,16 +373,26 @@ class OpencodeStorageScanner {
                 }
 
                 const eventSessionId = getString(part.sessionID) ?? sessionId;
-                this.onEvent({
-                    event: 'message.part.updated',
-                    payload: { part },
-                    sessionId: eventSessionId || undefined
+                pendingPartEvents.push({
+                    part,
+                    sessionId: eventSessionId || undefined,
+                    mtime,
+                    path: partPath
                 });
             }
         }
+
+        pendingPartEvents.sort(compareFileByTimeThenPath);
+        for (const event of pendingPartEvents) {
+            this.onEvent({
+                event: 'message.part.updated',
+                payload: { part: event.part },
+                sessionId: event.sessionId
+            });
+        }
     }
 
-    private shouldEmitPart(part: Record<string, unknown>, messageId: string): boolean {
+    private shouldEmitPart(part: Record<string, unknown>, _messageId: string): boolean {
         const partType = getString(part.type);
         if (!partType) {
             return false;
@@ -382,16 +403,7 @@ class OpencodeStorageScanner {
             if (!text) {
                 return false;
             }
-            const role = this.messageRoles.get(messageId);
-            if (role === 'user') {
-                return true;
-            }
-            if (part.synthetic === true) {
-                return true;
-            }
-            const time = isObject(part.time) ? part.time as Record<string, unknown> : null;
-            const end = time ? getNumber(time.end) : null;
-            return end !== null;
+            return true;
         }
 
         if (partType === 'tool') {
@@ -444,6 +456,33 @@ async function listJsonFiles(dirPath: string): Promise<string[]> {
     return entries
         .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
         .map((entry) => join(dirPath, entry.name));
+}
+
+type JsonFileWithMtime = {
+    path: string;
+    mtime: number | null;
+};
+
+function compareFileByTimeThenPath(
+    a: { mtime: number | null; path: string },
+    b: { mtime: number | null; path: string }
+): number {
+    const timeA = a.mtime ?? Number.NEGATIVE_INFINITY;
+    const timeB = b.mtime ?? Number.NEGATIVE_INFINITY;
+    if (timeA !== timeB) {
+        return timeA - timeB;
+    }
+    return a.path.localeCompare(b.path);
+}
+
+async function listJsonFilesWithMtime(dirPath: string): Promise<JsonFileWithMtime[]> {
+    const files = await listJsonFiles(dirPath);
+    const withMtime = await Promise.all(files.map(async (filePath) => ({
+        path: filePath,
+        mtime: await readMtime(filePath)
+    })));
+    withMtime.sort(compareFileByTimeThenPath);
+    return withMtime;
 }
 
 async function safeReadDir(dirPath: string): Promise<Dirent[]> {
